@@ -1,0 +1,33 @@
+from typing import List, Optional
+from pydantic import BaseModel, Field
+
+
+class ETFUnderlyingAsset(BaseModel):
+    ticker: str
+    name: str
+    weight_pct: float
+    sector: str
+
+
+class ETFFlowPoint(BaseModel):
+    date: str
+    flow_millions: float  # + creation, - redemption
+    shares_count: int
+
+
+class ETFDetailResponse(BaseModel):
+    ticker: str
+    name: str
+    benchmark_index: str
+    provider: str
+    current_price: float
+    nav_per_share: float
+    nav_spread_pct: float  # (price - nav) / nav * 100
+    ter_pct: float  # Total Expense Ratio (primary + secondary)
+    primary_fee_pct: float
+    secondary_fee_pct: float
+    policy: str  # ACUMULATIVO, DISTRIBUTIVO
+    shares_lending_pct: float  # % loaned out
+    max_lending_limit_pct: float = 30.0
+    underlying_holdings: List[ETFUnderlyingAsset] = Field(default_factory=list)
+    flow_history_30d: List[ETFFlowPoint] = Field(default_factory=list)

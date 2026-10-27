@@ -11,6 +11,15 @@ from app.core.redis import close_redis_client
 from app.market.router import router as market_router
 from app.portfolio.router import router as portfolio_router
 from app.billing.router import router as billing_router
+from app.fiis.router import router as fiis_router
+from app.stocks.router import router as stocks_router
+from app.funds.router import router as funds_router
+from app.etfs.router import router as etfs_router
+from app.derivatives.router import router as derivatives_router
+from app.fixed_income.router import router as fixed_income_router
+from app.screener.router import router as screener_router
+from app.comparator.router import router as comparator_router
+from app.intelligence.router import router as intelligence_router
 
 
 @asynccontextmanager
@@ -65,6 +74,15 @@ def create_app() -> FastAPI:
     app.include_router(market_router, prefix="/api/v1")
     app.include_router(portfolio_router, prefix="/api/v1")
     app.include_router(billing_router, prefix="/api/v1")
+    app.include_router(fiis_router, prefix="/api/v1")
+    app.include_router(stocks_router, prefix="/api/v1")
+    app.include_router(funds_router, prefix="/api/v1")
+    app.include_router(etfs_router, prefix="/api/v1")
+    app.include_router(derivatives_router, prefix="/api/v1")
+    app.include_router(fixed_income_router, prefix="/api/v1")
+    app.include_router(screener_router, prefix="/api/v1")
+    app.include_router(comparator_router, prefix="/api/v1")
+    app.include_router(intelligence_router, prefix="/api/v1")
 
     return app
 
