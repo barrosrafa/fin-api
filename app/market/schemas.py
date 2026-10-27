@@ -58,3 +58,40 @@ class ScreenerItem(BaseModel):
     dy_pct: Optional[float] = None
     p_l: Optional[float] = None
     roe_pct: Optional[float] = None
+
+
+# Endpoints for Frontend Terminal
+class BenchmarkItem(BaseModel):
+    name: str
+    ticker: str
+    value: float
+    change: float
+    sparkline: List[float] = Field(default_factory=list)
+
+
+class AssetSummaryResponse(BaseModel):
+    ticker: str
+    name: str
+    type: str  # ACAO, FII, ETF
+    sector: str
+    subsector: Optional[str] = None
+    currentPrice: float
+    change24h: float
+    change12m: float
+    dividendYield: float
+    marketCap: Optional[float] = None
+    pvp: Optional[float] = None
+    pl: Optional[float] = None
+    sparkline: List[float] = Field(default_factory=list)
+    badge: Optional[str] = None
+
+
+class DividendCalendarItem(BaseModel):
+    id: str
+    assetTicker: str
+    type: str  # DIVIDENDO, JCP, RENDIMENTO
+    referenceMonth: str
+    dateCom: str
+    paymentDate: str
+    valuePerShare: float
+    yieldOnCostPct: float

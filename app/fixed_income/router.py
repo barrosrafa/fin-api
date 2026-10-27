@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_async_session
 from app.fixed_income.schemas import FixedIncomeResponse
 from app.fixed_income.service import FixedIncomeService
 
@@ -12,5 +14,6 @@ def get_fixed_income_service() -> FixedIncomeService:
 @router.get("/treasury", response_model=FixedIncomeResponse)
 async def get_treasury_bonds(
     service: FixedIncomeService = Depends(get_fixed_income_service),
+    db: AsyncSession = Depends(get_async_session),
 ):
-    return await service.get_treasury_and_curves()
+    return await service.get_treasury_and_curves(db_session=db)

@@ -1,3 +1,6 @@
+from typing import Optional
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.etfs.schemas import ETFDetailResponse, ETFUnderlyingAsset, ETFFlowPoint
 
 
@@ -5,10 +8,69 @@ class ETFService:
     def __init__(self, redis_client=None):
         self.redis = redis_client
 
-    async def get_etf_detail(self, ticker: str) -> ETFDetailResponse:
+    async def get_etf_detail(
+        self,
+        ticker: str,
+        db_session: Optional[AsyncSession] = None,
+    ) -> ETFDetailResponse:
         t = ticker.upper()
         current_price = 128.40 if t == "BOVA11" else 285.50
         nav_per_share = 128.25 if t == "BOVA11" else 285.10
+        provider = "BlackRock Brasil"
+        benchmark_index = "IBOVESPA" if t == "BOVA11" else "S&P 500 BRL"
+        ter_pct = 0.30
+        primary_fee_pct = 0.30
+        secondary_fee_pct = 0.00
+        policy = "ACUMULATIVO"
+        max_lending_limit_pct = 30.0
+
+        if db_session is not None:
+            stmt = text(
+                """
+                SELECT 
+                    a.id_ativo,
+                    COALESCE(ec.nome_empresarial, a.ticker) as nome,
+                    COALESCE(cd.preco_fechamento, 128.0) as preco,
+                    ed.indice_referencia,
+                    ed.gestor,
+                    ed.taxa_administracao_total,
+                    ed.taxa_administracao_primaria,
+                    ed.taxa_administracao_secundaria,
+                    ed.politica_dividendos,
+                    ed.limite_aluguel_pl_pct
+                FROM core.ativo a
+                LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                LEFT JOIN asset_details.etf_detalhe ed ON ed.id_ativo = a.id_ativo
+                LEFT JOIN LATERAL (
+                    SELECT preco_fechamento 
+                    FROM market.cotacao_diaria 
+                    WHERE id_ativo = a.id_ativo 
+                    ORDER BY data_pregao DESC LIMIT 1
+                ) cd ON TRUE
+                WHERE a.ticker = :ticker
+                LIMIT 1;
+                """
+            )
+            res = await db_session.execute(stmt, {"ticker": t})
+            row = res.mappings().first()
+            if row:
+                current_price = float(row["preco"])
+                nav_per_share = round(current_price * 0.9985, 2)
+                if row["indice_referencia"]:
+                    benchmark_index = row["indice_referencia"]
+                if row["gestor"]:
+                    provider = row["gestor"]
+                if row["taxa_administracao_total"] is not None:
+                    ter_pct = float(row["taxa_administracao_total"])
+                if row["taxa_administracao_primaria"] is not None:
+                    primary_fee_pct = float(row["taxa_administracao_primaria"])
+                if row["taxa_administracao_secundaria"] is not None:
+                    secondary_fee_pct = float(row["taxa_administracao_secundaria"])
+                if row["politica_dividendos"]:
+                    policy = row["politica_dividendos"]
+                if row["limite_aluguel_pl_pct"] is not None:
+                    max_lending_limit_pct = float(row["limite_aluguel_pl_pct"])
+
         spread_pct = round(((current_price - nav_per_share) / nav_per_share) * 100, 3)
 
         holdings = [
@@ -33,17 +95,17 @@ class ETFService:
         return ETFDetailResponse(
             ticker=t,
             name=f"iShares {t} Fundo de Índice",
-            benchmark_index="IBOVESPA" if t == "BOVA11" else "S&P 500 BRL",
-            provider="BlackRock Brasil",
-            current_price=current_price,
-            nav_per_share=nav_per_share,
+            benchmark_index=benchmark_index,
+            provider=provider,
+            current_price=round(current_price, 2),
+            nav_per_share=round(nav_per_share, 2),
             nav_spread_pct=spread_pct,
-            ter_pct=0.30 if t == "BOVA11" else 0.24,
-            primary_fee_pct=0.30 if t == "BOVA11" else 0.21,
-            secondary_fee_pct=0.00 if t == "BOVA11" else 0.03,
-            policy="ACUMULATIVO",
+            ter_pct=ter_pct,
+            primary_fee_pct=primary_fee_pct,
+            secondary_fee_pct=secondary_fee_pct,
+            policy=policy,
             shares_lending_pct=14.5,
-            max_lending_limit_pct=30.0,
+            max_lending_limit_pct=max_lending_limit_pct,
             underlying_holdings=holdings,
             flow_history_30d=flows,
         )

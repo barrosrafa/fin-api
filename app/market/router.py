@@ -12,7 +12,14 @@ from app.core.database import get_async_session
 from app.core.redis import get_redis_client
 from app.core.catalog import TickerCatalog
 from app.market.service import MarketService
-from app.market.schemas import QuoteResponse, SyncStatusResponse, IndicatorsResponse
+from app.market.schemas import (
+    QuoteResponse,
+    SyncStatusResponse,
+    IndicatorsResponse,
+    BenchmarkItem,
+    AssetSummaryResponse,
+    DividendCalendarItem,
+)
 
 router = APIRouter(prefix="/market", tags=["Market"])
 
@@ -33,6 +40,33 @@ async def get_market_service(
         redis_client=redis,
         arq_pool=arq_pool,
     )
+
+
+@router.get("/benchmarks", response_model=list[BenchmarkItem])
+async def get_market_benchmarks(
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    service = MarketService()
+    return await service.get_benchmarks(db_session=db)
+
+
+@router.get("/assets", response_model=list[AssetSummaryResponse])
+async def get_market_assets(
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+    asset_type: Optional[str] = None,
+    limit: int = 50,
+):
+    service = MarketService()
+    return await service.get_assets(asset_type=asset_type, limit=limit, db_session=db)
+
+
+@router.get("/dividends", response_model=list[DividendCalendarItem])
+async def get_dividend_calendar(
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+    limit: int = 15,
+):
+    service = MarketService()
+    return await service.get_dividend_calendar(limit=limit, db_session=db)
 
 
 @router.get("/{ticker}", response_model=QuoteResponse)
