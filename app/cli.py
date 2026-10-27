@@ -50,12 +50,25 @@ def catalog_sync():
     async def _sync():
         redis = await get_redis_client()
         catalog = TickerCatalog(redis_client=redis)
-        top_tickers = [
-            "PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3", "ABEV3", "WEGE3", "RENT3",
-            "HGLG11", "KNIP11", "XPLG11", "MXRF11", "BTLG11", "VISC11", "BOVA11", "IVVB11"
-        ]
-        count = await catalog.add_tickers(top_tickers)
+        engine = get_async_engine()
+
+        tickers = []
+        try:
+            async with engine.connect() as conn:
+                res = await conn.execute(text("SELECT ticker FROM core.ativo ORDER BY ticker;"))
+                tickers = [r[0] for r in res.fetchall()]
+        except Exception as e:
+            logger.warning(f"Failed to fetch tickers from core.ativo: {e}")
+
+        if not tickers:
+            tickers = [
+                "PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3", "ABEV3", "WEGE3", "RENT3",
+                "HGLG11", "KNIP11", "XPLG11", "MXRF11", "BTLG11", "VISC11", "BOVA11", "IVVB11"
+            ]
+
+        count = await catalog.add_tickers(tickers)
         typer.echo(f"Successfully seeded {count} tickers into TickerCatalog!")
+        await close_database_engine()
         await close_redis_client()
 
     asyncio.run(_sync())

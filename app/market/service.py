@@ -31,6 +31,17 @@ class MarketService:
 
         # Layer 1 Gatekeeper: O(1) Catalog verification
         is_valid = await self.ticker_catalog.is_valid(normalized)
+        if not is_valid and db_session is not None:
+            # Fallback dinâmico: verifica core.ativo no Neon PostgreSQL
+            stmt_cat = text("SELECT 1 FROM core.ativo WHERE ticker = :ticker LIMIT 1")
+            res_cat = await db_session.execute(stmt_cat, {"ticker": normalized})
+            if res_cat.scalar() is not None:
+                is_valid = True
+                try:
+                    await self.ticker_catalog.add_tickers([normalized])
+                except Exception:
+                    pass
+
         if not is_valid:
             raise AssetNotListedException(normalized)
 
@@ -54,9 +65,12 @@ class MarketService:
         if db_session is not None:
             stmt = text(
                 """
-                SELECT cd.preco_fechamento, cd.variacao_percentual, cd.volume_total
+                SELECT cd.preco_fechamento, cd.variacao_percentual, cd.volume_total,
+                       inf.pl, inf.pvp, inf.dividend_yield
                 FROM market.cotacao_diaria cd
                 JOIN core.ativo a ON a.id_ativo = cd.id_ativo
+                LEFT JOIN analytics.indicador_fundamentalista inf
+                    ON inf.id_ativo = a.id_ativo AND inf.data_referencia = cd.data_pregao
                 WHERE a.ticker = :ticker
                 ORDER BY cd.data_pregao DESC
                 LIMIT 1
@@ -70,6 +84,9 @@ class MarketService:
                     price=float(row["preco_fechamento"]),
                     change_pct=float(row.get("variacao_percentual") or row.get("variacao_pct") or 0.0),
                     volume=float(row.get("volume_total") or row.get("volume_financeiro") or 0.0),
+                    p_l=float(row["pl"]) if row.get("pl") is not None else None,
+                    p_vp=float(row["pvp"]) if row.get("pvp") is not None else None,
+                    dy_pct=float(row["dividend_yield"]) if row.get("dividend_yield") is not None else None,
                     source=row.get("fonte", "fin-db"),
                 )
 
@@ -116,4 +133,42 @@ class MarketService:
             status=data.get("status", "idle"),
             progress=float(data.get("progress", 0.0)),
             result=data.get("result"),
+        )
+
+    async def get_indicators(
+        self,
+        ticker: str,
+        db_session: Optional[AsyncSession] = None,
+    ) -> IndicatorsResponse:
+        """Retorna indicadores fundamentalistas completos a partir de analytics.indicador_fundamentalista."""
+        normalized = ticker.strip().upper()
+        if db_session is None:
+            return IndicatorsResponse(ticker=normalized)
+
+        stmt = text(
+            """
+            SELECT inf.pl, inf.pvp, inf.dividend_yield, inf.roe, inf.roic,
+                   inf.margem_liquida, inf.divida_liquida_ebitda, inf.ev_ebitda
+            FROM analytics.indicador_fundamentalista inf
+            JOIN core.ativo a ON a.id_ativo = inf.id_ativo
+            WHERE a.ticker = :ticker
+            ORDER BY inf.data_referencia DESC
+            LIMIT 1
+            """
+        )
+        res = await db_session.execute(stmt, {"ticker": normalized})
+        row = res.mappings().first()
+        if not row:
+            return IndicatorsResponse(ticker=normalized)
+
+        return IndicatorsResponse(
+            ticker=normalized,
+            p_l=float(row["pl"]) if row.get("pl") is not None else None,
+            p_vp=float(row["pvp"]) if row.get("pvp") is not None else None,
+            dy_pct=float(row["dividend_yield"]) if row.get("dividend_yield") is not None else None,
+            roe_pct=float(row["roe"]) if row.get("roe") is not None else None,
+            roic_pct=float(row["roic"]) if row.get("roic") is not None else None,
+            margem_liquida_pct=float(row["margem_liquida"]) if row.get("margem_liquida") is not None else None,
+            divida_liquida_ebitda=float(row["divida_liquida_ebitda"]) if row.get("divida_liquida_ebitda") is not None else None,
+            ev_ebitda=float(row["ev_ebitda"]) if row.get("ev_ebitda") is not None else None,
         )

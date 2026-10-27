@@ -57,6 +57,15 @@ async def get_ticker_sync_status(
     return await service.get_sync_status(ticker)
 
 
+@router.get("/{ticker}/indicators", response_model=IndicatorsResponse)
+async def get_market_indicators(
+    ticker: str,
+    service: Annotated[MarketService, Depends(get_market_service)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    return await service.get_indicators(ticker=ticker, db_session=db)
+
+
 @router.get("/{ticker}/stream")
 async def stream_ticker_sync_progress(
     ticker: str,

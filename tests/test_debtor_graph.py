@@ -75,3 +75,65 @@ def test_user_override_excludes_edge():
 
     jhsf_list = [d for d in result.debtors if d.entity_name == "Grupo JHSF"]
     assert len(jhsf_list) == 0
+
+
+def test_bitemporal_as_of_querying():
+    from datetime import datetime, timezone
+    positions = [
+        PortfolioPosition(ticker="KNIP11", asset_class="FII", weight_pct=20.0),
+    ]
+    # Edge v1 valid in Aug/2026, known on Sept 15, retified on Oct 20
+    edge_v1 = EdgeInfo(
+        target_entity_name="Grupo JHSF",
+        weight_pct=18.0,
+        coverage_category="RESOLVED",
+        valid_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        valid_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        transaction_start=datetime(2026, 9, 15, tzinfo=timezone.utc),
+        transaction_end=datetime(2026, 10, 20, tzinfo=timezone.utc),
+    )
+    # Edge v2 retified on Oct 20
+    edge_v2 = EdgeInfo(
+        target_entity_name="Grupo JHSF",
+        weight_pct=22.0,
+        coverage_category="RESOLVED",
+        valid_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        valid_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        transaction_start=datetime(2026, 10, 20, tzinfo=timezone.utc),
+        transaction_end=datetime(9999, 12, 31, tzinfo=timezone.utc),
+    )
+
+    edges = {"KNIP11": [edge_v1, edge_v2]}
+    service = DebtorGraphService(edges_lookup=edges)
+
+    # Query as of Oct 01 (should see v1 with 18.0% -> exposure = 20% * 18% = 3.6%)
+    res_oct_01 = service.calculate_debtor_exposure(
+        positions,
+        as_of_valid_time=datetime(2026, 8, 15, tzinfo=timezone.utc),
+        as_of_transaction_time=datetime(2026, 10, 1, tzinfo=timezone.utc),
+    )
+    jhsf_v1 = next(d for d in res_oct_01.debtors if d.entity_name == "Grupo JHSF")
+    assert jhsf_v1.total_exposure_pct == pytest.approx(3.6, 0.01)
+
+    # Query as of Oct 25 (should see v2 with 22.0% -> exposure = 20% * 22% = 4.4%)
+    res_oct_25 = service.calculate_debtor_exposure(
+        positions,
+        as_of_valid_time=datetime(2026, 8, 15, tzinfo=timezone.utc),
+        as_of_transaction_time=datetime(2026, 10, 25, tzinfo=timezone.utc),
+    )
+    jhsf_v2 = next(d for d in res_oct_25.debtors if d.entity_name == "Grupo JHSF")
+    assert jhsf_v2.total_exposure_pct == pytest.approx(4.4, 0.01)
+
+
+def test_expanded_level_0_classes():
+    positions = [
+        PortfolioPosition(ticker="TESOURO_IPCA", asset_class="FIXED_INCOME", weight_pct=30.0),
+        PortfolioPosition(ticker="BOVA11", asset_class="ETF", weight_pct=20.0),
+        PortfolioPosition(ticker="CAIXA", asset_class="CASH", weight_pct=10.0),
+    ]
+    service = DebtorGraphService()
+    result = service.calculate_debtor_exposure(positions)
+    # All three should be resolved as level-0 without falling into pending curation
+    assert result.coverage.pct_resolved == 60.0
+    assert result.coverage.pct_temporary_pending == 0.0
+    assert len(result.debtors) == 3

@@ -1,3 +1,4 @@
+import asyncio
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -9,11 +10,17 @@ from app.config import get_settings
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+_engine_loop: asyncio.AbstractEventLoop | None = None
 
 
 def get_async_engine() -> AsyncEngine:
-    global _engine
-    if _engine is None:
+    global _engine, _sessionmaker, _engine_loop
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if _engine is None or (_engine_loop is not None and _engine_loop != current_loop):
         settings = get_settings()
         _engine = create_async_engine(
             settings.DATABASE_URL,
@@ -22,13 +29,15 @@ def get_async_engine() -> AsyncEngine:
             pool_pre_ping=True,
             echo=False,
         )
+        _engine_loop = current_loop
+        _sessionmaker = None
     return _engine
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     global _sessionmaker
+    engine = get_async_engine()
     if _sessionmaker is None:
-        engine = get_async_engine()
         _sessionmaker = async_sessionmaker(
             bind=engine,
             class_=AsyncSession,

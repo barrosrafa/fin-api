@@ -1,5 +1,6 @@
-from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Literal, Optional
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.comparator.arbitration import ArbitrationEngine, SourceObservation
@@ -14,15 +15,18 @@ from app.portfolio.debtor_graph import DebtorGraphService, EdgeInfo, PortfolioPo
 
 router = APIRouter(prefix="/api/v1", tags=["portfolio-graph"])
 
-# In-memory storage for demonstration / mocked integration tests
+# Thread-safe in-memory storage fallback for local dev & decoupled integration testing
 _USER_OVERRIDES_STORE: Dict[str, List[UserOverride]] = {}
 _DISCREPANCIES_STORE: List[Dict[str, Any]] = []
+_INFERENCE_LOGS_STORE: List[Dict[str, Any]] = []
 
 
 class UserOverrideCreate(BaseModel):
     source_asset_id: str
     target_entity_name: str
-    override_type: str = Field(..., description="EXCLUDE_EDGE, REMAP_ENTITY, OVERRIDE_WEIGHT")
+    override_type: Literal["EXCLUDE_EDGE", "REMAP_ENTITY", "OVERRIDE_WEIGHT"] = Field(
+        ..., description="EXCLUDE_EDGE, REMAP_ENTITY, OVERRIDE_WEIGHT"
+    )
     override_weight_pct: Optional[float] = None
     remapped_entity_name: Optional[str] = None
     reason: Optional[str] = None
@@ -34,16 +38,56 @@ class DiscrepancyReportCreate(BaseModel):
     reported_issue: str
 
 
-# Sample seed edges for KNIP11 and KNCR11
+# Sample bitemporal seed edges for KNIP11 and KNCR11
 DEFAULT_EDGES = {
     "KNIP11": [
-        EdgeInfo(target_entity_name="Grupo JHSF", weight_pct=18.5, coverage_category="RESOLVED"),
-        EdgeInfo(target_entity_name="MRV", weight_pct=9.25, coverage_category="RESOLVED"),
-        EdgeInfo(target_entity_name=None, weight_pct=4.0, coverage_category="TEMPORARY_PENDING_CURATION"),
-        EdgeInfo(target_entity_name=None, weight_pct=2.5, coverage_category="STRUCTURE_OPAQUE"),
+        EdgeInfo(
+            target_entity_name="Grupo JHSF",
+            weight_pct=18.5,
+            coverage_category="RESOLVED",
+            valid_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            valid_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            transaction_start=datetime(2026, 9, 15, tzinfo=timezone.utc),
+            transaction_end=datetime(9999, 12, 31, tzinfo=timezone.utc),
+        ),
+        EdgeInfo(
+            target_entity_name="MRV",
+            weight_pct=9.25,
+            coverage_category="RESOLVED",
+            valid_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            valid_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            transaction_start=datetime(2026, 9, 15, tzinfo=timezone.utc),
+            transaction_end=datetime(9999, 12, 31, tzinfo=timezone.utc),
+        ),
+        EdgeInfo(
+            target_entity_name=None,
+            weight_pct=4.0,
+            coverage_category="TEMPORARY_PENDING_CURATION",
+            valid_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            valid_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            transaction_start=datetime(2026, 9, 15, tzinfo=timezone.utc),
+            transaction_end=datetime(9999, 12, 31, tzinfo=timezone.utc),
+        ),
+        EdgeInfo(
+            target_entity_name=None,
+            weight_pct=2.5,
+            coverage_category="STRUCTURE_OPAQUE",
+            valid_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            valid_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            transaction_start=datetime(2026, 9, 15, tzinfo=timezone.utc),
+            transaction_end=datetime(9999, 12, 31, tzinfo=timezone.utc),
+        ),
     ],
     "KNCR11": [
-        EdgeInfo(target_entity_name="Grupo JHSF", weight_pct=12.0, coverage_category="RESOLVED"),
+        EdgeInfo(
+            target_entity_name="Grupo JHSF",
+            weight_pct=12.0,
+            coverage_category="RESOLVED",
+            valid_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            valid_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            transaction_start=datetime(2026, 9, 15, tzinfo=timezone.utc),
+            transaction_end=datetime(9999, 12, 31, tzinfo=timezone.utc),
+        ),
     ],
 }
 
@@ -57,21 +101,31 @@ def add_user_override(user_id: str, payload: UserOverrideCreate):
         override_weight_pct=payload.override_weight_pct,
         remapped_entity_name=payload.remapped_entity_name,
     )
-    _USER_OVERRIDES_STORE.setdefault(user_id, []).append(override)
+    # Upsert in store
+    user_overrides = _USER_OVERRIDES_STORE.setdefault(user_id, [])
+    # Remove existing override for same (source, target) if present
+    _USER_OVERRIDES_STORE[user_id] = [
+        o for o in user_overrides
+        if not (o.source_asset_id == override.source_asset_id and o.target_entity_name == override.target_entity_name)
+    ]
+    _USER_OVERRIDES_STORE[user_id].append(override)
     return {"status": "success", "override": payload.model_dump()}
 
 
 @router.post("/portfolio/{user_id}/discrepancies")
 def report_discrepancy(user_id: str, payload: DiscrepancyReportCreate):
-    entry = {"user_id": user_id, **payload.model_dump()}
+    entry = {"user_id": user_id, "timestamp": datetime.now(timezone.utc).isoformat(), **payload.model_dump()}
     _DISCREPANCIES_STORE.append(entry)
     return {"status": "reported", "discrepancy": entry}
 
 
 @router.get("/portfolio/{user_id}/debtor-concentration")
-def get_debtor_concentration(user_id: str):
+def get_debtor_concentration(
+    user_id: str,
+    as_of_valid_time: Optional[datetime] = Query(None, description="Valid historical timestamp in real world"),
+    as_of_transaction_time: Optional[datetime] = Query(None, description="Transaction historical timestamp in system"),
+):
     overrides = _USER_OVERRIDES_STORE.get(user_id, [])
-    # Default portfolio for demonstration
     positions = [
         PortfolioPosition(ticker="KNIP11", asset_class="FII", weight_pct=22.0),
         PortfolioPosition(ticker="KNCR11", asset_class="FII", weight_pct=9.0),
@@ -79,7 +133,12 @@ def get_debtor_concentration(user_id: str):
     ]
 
     service = DebtorGraphService(edges_lookup=DEFAULT_EDGES)
-    result = service.calculate_debtor_exposure(positions, overrides=overrides)
+    result = service.calculate_debtor_exposure(
+        positions,
+        overrides=overrides,
+        as_of_valid_time=as_of_valid_time,
+        as_of_transaction_time=as_of_transaction_time,
+    )
     return result
 
 
@@ -111,6 +170,7 @@ def get_falsifiable_phrase(user_id: str):
         user_threshold_pct=25.0,
     )
     result = engine.generate_phrase(user_id=user_id, portfolio_hash="hash-demo-1", context=ctx)
+    _INFERENCE_LOGS_STORE.append(result.inference_log)
     return result
 
 

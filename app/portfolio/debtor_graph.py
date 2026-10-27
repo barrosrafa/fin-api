@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 
 @dataclass
 class PortfolioPosition:
     ticker: str
-    asset_class: str # FII, FUND_CVM_175, DIRECT_CRI, EQUITY, FIXED_INCOME
+    asset_class: str # FII, FUND_CVM_175, DIRECT_CRI, EQUITY, FIXED_INCOME, TREASURY, CASH, ETF
     weight_pct: float # Percent of total portfolio
 
 
@@ -14,6 +15,23 @@ class EdgeInfo:
     target_entity_name: Optional[str]
     weight_pct: float # Percent of fund/asset PL
     coverage_category: str = "RESOLVED" # RESOLVED, TEMPORARY_PENDING_CURATION, STRUCTURE_OPAQUE
+    valid_start: Optional[datetime] = None
+    valid_end: Optional[datetime] = None
+    transaction_start: Optional[datetime] = None
+    transaction_end: Optional[datetime] = None
+
+    def is_active_at(
+        self,
+        valid_time: Optional[datetime] = None,
+        transaction_time: Optional[datetime] = None,
+    ) -> bool:
+        if valid_time and self.valid_start and self.valid_end:
+            if not (self.valid_start <= valid_time < self.valid_end):
+                return False
+        if transaction_time and self.transaction_start and self.transaction_end:
+            if not (self.transaction_start <= transaction_time < self.transaction_end):
+                return False
+        return True
 
 
 @dataclass
@@ -64,6 +82,8 @@ class DebtorGraphService:
         self,
         positions: List[PortfolioPosition],
         overrides: Optional[List[UserOverride]] = None,
+        as_of_valid_time: Optional[datetime] = None,
+        as_of_transaction_time: Optional[datetime] = None,
     ) -> PortfolioDebtorAnalysisResult:
         overrides_map: Dict[tuple, UserOverride] = {}
         if overrides:
@@ -78,12 +98,22 @@ class DebtorGraphService:
         total_pending = 0.0
         total_opaque = 0.0
 
+        LEVEL_0_CLASSES = {
+            "EQUITY",
+            "DIRECT_EQUITY",
+            "SOVEREIGN_BOND",
+            "FIXED_INCOME",
+            "TREASURY",
+            "CASH",
+            "ETF",
+        }
+
         for pos in positions:
             ticker = pos.ticker
             pos_weight = pos.weight_pct
 
-            # Level 0 assets (direct equities, sovereign bonds)
-            if pos.asset_class in ("EQUITY", "DIRECT_EQUITY", "SOVEREIGN_BOND"):
+            # Level 0 assets (direct equities, sovereign bonds, fixed income, cash, ETFs)
+            if pos.asset_class in LEVEL_0_CLASSES:
                 entity_name = ticker
                 debtor_totals[entity_name] = debtor_totals.get(entity_name, 0.0) + pos_weight
                 is_level_0_map[entity_name] = True
@@ -97,7 +127,13 @@ class DebtorGraphService:
                 total_resolved += pos_weight
                 continue
 
-            edges = self.edges_lookup.get(ticker, [])
+            raw_edges = self.edges_lookup.get(ticker, [])
+            # Filter active edges bitemporally
+            edges = [
+                e for e in raw_edges
+                if e.is_active_at(valid_time=as_of_valid_time, transaction_time=as_of_transaction_time)
+            ]
+
             if not edges:
                 # Treated as unmapped/pending
                 total_pending += pos_weight

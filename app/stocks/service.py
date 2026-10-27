@@ -1,5 +1,7 @@
 import math
 from typing import Optional
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.stocks.schemas import (
     StockValuationResponse,
     StockChecklistItem,
@@ -12,12 +14,41 @@ class StockService:
     def __init__(self, redis_client=None):
         self.redis = redis_client
 
-    async def get_valuation(self, ticker: str) -> StockValuationResponse:
+    async def get_valuation(
+        self,
+        ticker: str,
+        db_session: Optional[AsyncSession] = None,
+    ) -> StockValuationResponse:
         t = ticker.upper()
         current_price = 38.45 if t == "PETR4" else 62.10
         lpa = 8.12
         vpa = 33.50
         dpa_medio = 4.25
+
+        if db_session is not None:
+            stmt = text(
+                """
+                SELECT cd.preco_fechamento, inf.lpa, inf.vpa, inf.dividend_yield
+                FROM core.ativo a
+                LEFT JOIN market.cotacao_diaria cd ON cd.id_ativo = a.id_ativo
+                LEFT JOIN analytics.indicador_fundamentalista inf
+                    ON inf.id_ativo = a.id_ativo AND inf.data_referencia = cd.data_pregao
+                WHERE a.ticker = :ticker
+                ORDER BY cd.data_pregao DESC
+                LIMIT 1
+                """
+            )
+            res = await db_session.execute(stmt, {"ticker": t})
+            row = res.mappings().first()
+            if row:
+                if row.get("preco_fechamento") is not None and float(row["preco_fechamento"]) > 0:
+                    current_price = float(row["preco_fechamento"])
+                if row.get("lpa") is not None:
+                    lpa = float(row["lpa"])
+                if row.get("vpa") is not None:
+                    vpa = float(row["vpa"])
+                if row.get("dividend_yield") is not None:
+                    dpa_medio = (float(row["dividend_yield"]) / 100.0) * current_price
 
         # Graham: sqrt(22.5 * LPA * VPA)
         graham_fair_value = math.sqrt(22.5 * lpa * vpa) if lpa > 0 and vpa > 0 else 0.0

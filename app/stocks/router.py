@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_async_session
 from app.stocks.schemas import StockValuationResponse
 from app.stocks.service import StockService
 
@@ -13,5 +15,6 @@ def get_stock_service() -> StockService:
 async def get_stock_valuation(
     ticker: str,
     service: StockService = Depends(get_stock_service),
+    db: AsyncSession = Depends(get_async_session),
 ):
-    return await service.get_valuation(ticker=ticker)
+    return await service.get_valuation(ticker=ticker, db_session=db)

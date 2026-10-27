@@ -1,4 +1,6 @@
 from typing import Optional
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.fiis.schemas import (
     FIIDetailResponse,
     FIIPropertyItem,
@@ -12,8 +14,41 @@ class FIIService:
     def __init__(self, redis_client=None):
         self.redis = redis_client
 
-    async def get_fii_detail(self, ticker: str) -> FIIDetailResponse:
+    async def get_fii_detail(
+        self,
+        ticker: str,
+        db_session: Optional[AsyncSession] = None,
+    ) -> FIIDetailResponse:
         t = ticker.upper()
+        current_price = 162.50
+        pvp = 0.98
+        dividend_yield_12m = 8.75
+        net_worth = 5_420_000_000.0
+
+        if db_session is not None:
+            stmt = text(
+                """
+                SELECT cd.preco_fechamento, df.pvp, df.dividend_yield, df.patrimonio_liquido
+                FROM core.ativo a
+                LEFT JOIN market.cotacao_diaria cd ON cd.id_ativo = a.id_ativo
+                LEFT JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
+                WHERE a.ticker = :ticker
+                ORDER BY cd.data_pregao DESC
+                LIMIT 1
+                """
+            )
+            res = await db_session.execute(stmt, {"ticker": t})
+            row = res.mappings().first()
+            if row:
+                if row.get("preco_fechamento") is not None and float(row["preco_fechamento"]) > 0:
+                    current_price = float(row["preco_fechamento"])
+                if row.get("pvp") is not None:
+                    pvp = float(row["pvp"])
+                if row.get("dividend_yield") is not None:
+                    dividend_yield_12m = float(row["dividend_yield"])
+                if row.get("patrimonio_liquido") is not None:
+                    net_worth = float(row["patrimonio_liquido"])
+
         # Canonical baseline with deep physical / financial metrics
         properties = [
             FIIPropertyItem(
@@ -79,10 +114,10 @@ class FIIService:
             ticker=t,
             name=f"Fundo de Investimento Imobiliário {t}",
             segment="Galpões Logísticos e Industriais",
-            current_price=162.50,
-            pvp=0.98,
-            dividend_yield_12m=8.75,
-            net_worth=5_420_000_000.0,
+            current_price=current_price,
+            pvp=pvp,
+            dividend_yield_12m=dividend_yield_12m,
+            net_worth=net_worth,
             physical_vacancy_pct=2.8,
             financial_vacancy_pct=1.9,
             wault_years=4.6,
