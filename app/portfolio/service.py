@@ -28,7 +28,6 @@ class PortfolioService:
         new_price: float,
     ) -> float:
         if new_qty <= 0:
-            # Selling reduces quantity but does not alter purchase average price
             return current_avg_price
         total_shares = current_qty + new_qty
         if total_shares <= 0:
@@ -44,26 +43,26 @@ class PortfolioService:
     ) -> WalletResponse:
         stmt = text(
             """
-            INSERT INTO core.carteira (id_usuario, nome, descricao, padrao, criado_em, atualizado_em)
+            INSERT INTO core.carteira (id_usuario, nome_carteira, data_criacao)
             VALUES (
                 (SELECT id_usuario FROM core.usuario WHERE id_externo = :user_id OR email = :user_id LIMIT 1),
-                :nome, :descricao, :padrao, NOW(), NOW()
+                :nome, NOW()
             )
-            RETURNING id_carteira, nome, descricao, padrao, criado_em
+            RETURNING id_carteira, nome_carteira, data_criacao
             """
         )
         res = await db_session.execute(
             stmt,
-            {"user_id": user_id, "nome": data.nome, "descricao": data.descricao, "padrao": data.padrao},
+            {"user_id": user_id, "nome": data.nome},
         )
         row = res.mappings().first()
         await db_session.commit()
         return WalletResponse(
-            id=row["id_carteira"],
-            nome=row["nome"],
-            descricao=row["descricao"],
-            padrao=row["padrao"],
-            criado_em=row.get("criado_em"),
+            id=str(row["id_carteira"]),
+            nome=row["nome_carteira"],
+            descricao=data.descricao,
+            padrao=data.padrao,
+            criado_em=row.get("data_criacao"),
         )
 
     async def list_wallets(
@@ -73,37 +72,52 @@ class PortfolioService:
     ) -> List[WalletResponse]:
         stmt = text(
             """
-            SELECT c.id_carteira, c.nome, c.descricao, c.padrao, c.criado_em
+            SELECT c.id_carteira, c.nome_carteira, c.data_criacao
             FROM core.carteira c
             JOIN core.usuario u ON u.id_usuario = c.id_usuario
             WHERE u.id_externo = :user_id OR u.email = :user_id
-            ORDER BY c.padrao DESC, c.nome ASC
+            ORDER BY c.data_criacao DESC
             """
         )
         res = await db_session.execute(stmt, {"user_id": user_id})
         rows = res.mappings().all()
         return [
             WalletResponse(
-                id=r["id_carteira"],
-                nome=r["nome"],
-                descricao=r["descricao"],
-                padrao=r["padrao"],
-                criado_em=r.get("criado_em"),
+                id=str(r["id_carteira"]),
+                nome=r["nome_carteira"],
+                descricao=None,
+                padrao=False,
+                criado_em=r.get("data_criacao"),
             )
             for r in rows
         ]
 
     async def get_portfolio_summary(
         self,
-        wallet_id: int,
+        wallet_id: str,
+        user_id: str,
         db_session: AsyncSession,
     ) -> PortfolioSummaryResponse:
+        # IDOR Guard: verify wallet belongs to current user
+        check_stmt = text(
+            """
+            SELECT c.id_carteira
+            FROM core.carteira c
+            JOIN core.usuario u ON u.id_usuario = c.id_usuario
+            WHERE c.id_carteira = CAST(:wallet_id AS UUID)
+              AND (u.id_externo = :user_id OR u.email = :user_id)
+            """
+        )
+        check_res = await db_session.execute(check_stmt, {"wallet_id": wallet_id, "user_id": user_id})
+        if not check_res.scalar_one_or_none():
+            raise ResourceNotFoundException("Wallet", str(wallet_id))
+
         stmt = text(
             """
-            SELECT a.codigo AS ticker, a.tipo_ativo, p.quantidade, p.preco_medio
+            SELECT a.ticker, a.tipo_ativo, p.quantidade_total AS quantidade, p.preco_medio_ponderado AS preco_medio
             FROM core.posicao_custodia p
             JOIN core.ativo a ON a.id_ativo = p.id_ativo
-            WHERE p.id_carteira = :wallet_id AND p.quantidade > 0
+            WHERE p.id_carteira = CAST(:wallet_id AS UUID) AND p.quantidade_total > 0
             """
         )
         res = await db_session.execute(stmt, {"wallet_id": wallet_id})
@@ -121,7 +135,6 @@ class PortfolioService:
             cost = qty * avg_price
             total_cost += cost
 
-            # Fetch current price from Redis cache if available
             current_price = avg_price
             if self.redis is not None:
                 cached = await self.redis.get(f"quote:{ticker}")
@@ -154,7 +167,6 @@ class PortfolioService:
                 )
             )
 
-        # Calculate percentages
         if total_equity > 0:
             for p in positions:
                 p.peso_pct = round(p.valor_total_atual / total_equity * 100.0, 2)
@@ -165,7 +177,7 @@ class PortfolioService:
         profit_loss_pct = (profit_loss / total_cost * 100.0) if total_cost > 0 else 0.0
 
         return PortfolioSummaryResponse(
-            wallet_id=wallet_id,
+            wallet_id=str(wallet_id),
             total_cost=round(total_cost, 2),
             total_equity=round(total_equity, 2),
             profit_loss=round(profit_loss, 2),

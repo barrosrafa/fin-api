@@ -6,6 +6,7 @@ import redis.asyncio as aioredis
 from app.config import get_settings, Settings
 from app.core.database import get_async_session
 from app.core.redis import get_redis_client
+from app.core.exceptions import UnauthorizedException
 from app.auth.models import User
 from app.auth.dependencies import get_current_user
 from app.billing.contracts import PaymentProvider
@@ -59,7 +60,14 @@ async def handle_payment_webhook(
     provider: Annotated[PaymentProvider, Depends(get_payment_provider)],
     service: Annotated[BillingService, Depends(get_billing_service)],
     db: Annotated[AsyncSession, Depends(get_async_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ):
+    # Verify Asaas Webhook Token (Header: asaas-access-token)
+    if gateway_provider == "asaas":
+        token = request.headers.get("asaas-access-token")
+        if not token or token != settings.ASAAS_WEBHOOK_SECRET:
+            raise UnauthorizedException("Invalid or missing asaas-access-token webhook header")
+
     body = await request.body()
     headers = dict(request.headers)
     event = await provider.parse_webhook(payload=body, headers=headers)

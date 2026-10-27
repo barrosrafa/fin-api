@@ -45,9 +45,9 @@ async def create_user_wallet(
 
 @router.get("/wallets/{wallet_id}/summary", response_model=PortfolioSummaryResponse)
 async def get_wallet_summary(
-    wallet_id: int,
+    wallet_id: str,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[PortfolioService, Depends(get_portfolio_service)],
     db: Annotated[AsyncSession, Depends(get_async_session)],
 ):
-    return await service.get_portfolio_summary(wallet_id=wallet_id, db_session=db)
+    return await service.get_portfolio_summary(wallet_id=wallet_id, user_id=current_user.id, db_session=db)

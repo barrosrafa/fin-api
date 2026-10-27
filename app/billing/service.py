@@ -43,11 +43,20 @@ class BillingService:
                     """
                 )
                 try:
-                    await db_session.execute(
+                    res = await db_session.execute(
                         stmt,
                         {"tier": event.plan_tier.value, "email": event.customer_email},
                     )
                     await db_session.commit()
+
+                    # Query id_externo to invalidate external user ID cache key as well
+                    id_res = await db_session.execute(
+                        text("SELECT id_externo FROM core.usuario WHERE email = :email LIMIT 1"),
+                        {"email": event.customer_email},
+                    )
+                    id_externo = id_res.scalar_one_or_none()
+                    if id_externo and self.redis is not None:
+                        await self.redis.delete(f"user:{id_externo}:profile")
                 except Exception as e:
                     logger.error(f"Error updating user tier on webhook: {e}")
 

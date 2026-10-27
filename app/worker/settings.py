@@ -44,6 +44,7 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     queue_name = QUEUE_DEFAULT
     max_jobs = settings.ARQ_MAX_JOBS
+    job_completion_wait = 30  # 30s grace period for in-flight tasks on SIGTERM
 
     functions = [
         refresh_ticker_data_task,

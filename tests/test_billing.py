@@ -86,3 +86,16 @@ async def test_webhook_idempotency_and_tier_upgrade():
     # Second delivery: duplicate ignored
     processed_duplicate = await service.handle_webhook_event(event, db_session=mock_db)
     assert processed_duplicate is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_unauthorized_without_secret():
+    from app.main import create_app
+    from httpx import AsyncClient, ASGITransport
+
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Calling webhook without asaas-access-token header must return 401
+        res = await client.post("/api/v1/billing/webhooks/asaas", json={"event": "TEST"})
+        assert res.status_code == 401
+        assert "Invalid or missing asaas-access-token" in res.json()["message"]

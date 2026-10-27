@@ -29,15 +29,35 @@ async def refresh_ticker_data_task(
             ex=300,
         )
 
-    # Step 2: Route collection by asset class
-    if asset_class == "fii":
-        canonical = await router.collect_fii(normalized_ticker)
-    elif asset_class == "fund":
-        canonical = await router.collect_fund(normalized_ticker)
-    elif asset_class == "etf":
-        canonical = await router.collect_etf(normalized_ticker)
-    else:
-        canonical = await router.collect_stock(normalized_ticker)
+    # Step 2: Route collection by asset class with negative cache tracking
+    try:
+        if asset_class == "fii":
+            canonical = await router.collect_fii(normalized_ticker)
+        elif asset_class == "fund":
+            canonical = await router.collect_fund(normalized_ticker)
+        elif asset_class == "etf":
+            canonical = await router.collect_etf(normalized_ticker)
+        else:
+            canonical = await router.collect_stock(normalized_ticker)
+            
+        # Success: reset failure counter
+        if redis is not None:
+            await redis.delete(f"failed_count:{normalized_ticker}")
+            await redis.delete(f"failed_ticker:{normalized_ticker}")
+    except Exception as e:
+        logger.error(f"Collection failed across all sources for {normalized_ticker}: {e}")
+        if redis is not None:
+            fail_count = await redis.incr(f"failed_count:{normalized_ticker}")
+            if fail_count >= 3:
+                # Set 10-minute negative cache triggering HTTP 422
+                await redis.set(f"failed_ticker:{normalized_ticker}", "1", ex=600)
+            await redis.set(
+                f"sync:{normalized_ticker}",
+                json.dumps({"status": "failed", "progress": 0.0, "message": str(e)}),
+                ex=300,
+            )
+            await redis.publish(f"channel:sync:{normalized_ticker}", json.dumps({"status": "failed"}))
+        raise
 
     # Step 3: Upsert into PostgreSQL 18 / TimescaleDB (market.cotacao_diaria)
     if db_factory is not None:
@@ -45,19 +65,17 @@ async def refresh_ticker_data_task(
             stmt = text(
                 """
                 INSERT INTO market.cotacao_diaria (
-                    id_ativo, data_pregao, preco_fechamento, variacao_pct,
-                    volume_financeiro, fonte, atualizado_em
+                    id_ativo, data_pregao, preco_fechamento, variacao_percentual,
+                    volume_total
                 )
                 VALUES (
-                    (SELECT id_ativo FROM core.ativo WHERE codigo = :ticker LIMIT 1),
-                    CURRENT_DATE, :price, :change_pct, :volume, :source, NOW()
+                    (SELECT id_ativo FROM core.ativo WHERE ticker = :ticker LIMIT 1),
+                    CURRENT_DATE, :price, :change_pct, :volume
                 )
                 ON CONFLICT (id_ativo, data_pregao) DO UPDATE SET
                     preco_fechamento = EXCLUDED.preco_fechamento,
-                    variacao_pct = EXCLUDED.variacao_pct,
-                    volume_financeiro = EXCLUDED.volume_financeiro,
-                    fonte = EXCLUDED.fonte,
-                    atualizado_em = NOW()
+                    variacao_percentual = EXCLUDED.variacao_percentual,
+                    volume_total = EXCLUDED.volume_total
                 """
             )
             try:
@@ -68,7 +86,6 @@ async def refresh_ticker_data_task(
                         "price": canonical.price,
                         "change_pct": canonical.change_pct,
                         "volume": canonical.volume,
-                        "source": canonical.source,
                     },
                 )
                 await session.commit()

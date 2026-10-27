@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
 from app.core.catalog import TickerCatalog
-from app.core.exceptions import AssetNotListedException
+from app.core.exceptions import AssetNotListedException, FinApiException
 from app.market.schemas import QuoteResponse, TickerQuote, SyncStatusResponse, IndicatorsResponse
 from app.core.logging import logger
 
@@ -34,6 +34,11 @@ class MarketService:
         if not is_valid:
             raise AssetNotListedException(normalized)
 
+        # Check Negative Cache (422 after repeated collector failures)
+        is_failed = await self.redis.get(f"failed_ticker:{normalized}")
+        if is_failed and (is_failed == b"1" or is_failed == "1"):
+            raise FinApiException("Dados temporariamente indisponíveis nas fontes externas", status_code=422)
+
         # Layer 2: Check Redis Cache
         cached_bytes = await self.redis.get(f"quote:{normalized}")
         if cached_bytes:
@@ -49,10 +54,10 @@ class MarketService:
         if db_session is not None:
             stmt = text(
                 """
-                SELECT cd.preco_fechamento, cd.variacao_pct, cd.volume_financeiro, cd.fonte
+                SELECT cd.preco_fechamento, cd.variacao_percentual, cd.volume_total
                 FROM market.cotacao_diaria cd
                 JOIN core.ativo a ON a.id_ativo = cd.id_ativo
-                WHERE a.codigo = :ticker
+                WHERE a.ticker = :ticker
                 ORDER BY cd.data_pregao DESC
                 LIMIT 1
                 """
@@ -63,8 +68,8 @@ class MarketService:
                 db_quote = TickerQuote(
                     ticker=normalized,
                     price=float(row["preco_fechamento"]),
-                    change_pct=float(row["variacao_pct"] or 0.0),
-                    volume=float(row["volume_financeiro"] or 0.0),
+                    change_pct=float(row.get("variacao_percentual") or row.get("variacao_pct") or 0.0),
+                    volume=float(row.get("volume_total") or row.get("volume_financeiro") or 0.0),
                     source=row.get("fonte", "fin-db"),
                 )
 

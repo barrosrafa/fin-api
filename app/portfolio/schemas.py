@@ -21,7 +21,7 @@ class WalletCreate(BaseModel):
 
 
 class WalletResponse(BaseModel):
-    id: int
+    id: str
     nome: str
     descricao: Optional[str] = None
     padrao: bool = False
@@ -53,7 +53,7 @@ class PositionResponse(BaseModel):
 
 
 class PortfolioSummaryResponse(BaseModel):
-    wallet_id: int
+    wallet_id: str
     total_cost: float
     total_equity: float
     profit_loss: float

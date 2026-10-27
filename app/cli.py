@@ -31,13 +31,15 @@ def serve(
 
 @cli.command()
 def worker(
+    queue: str = typer.Option("default", help="Queue to consume (default, high_priority, batch)"),
     burst: bool = typer.Option(False, help="Run worker in burst mode (exit when queues are empty)"),
 ):
     """Start the ARQ async background task worker and cron scheduler."""
     from arq import run_worker
     from app.worker.settings import WorkerSettings
 
-    logger.info(f"Starting ARQ worker (burst={burst})...")
+    logger.info(f"Starting ARQ worker on queue '{queue}' (burst={burst})...")
+    WorkerSettings.queue_name = queue
     WorkerSettings.burst = burst
     run_worker(WorkerSettings)
 
