@@ -20,6 +20,7 @@ from app.fixed_income.router import router as fixed_income_router
 from app.screener.router import router as screener_router
 from app.comparator.router import router as comparator_router
 from app.intelligence.router import router as intelligence_router
+from app.portfolio.overrides import router as graph_router
 
 
 @asynccontextmanager
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(screener_router, prefix="/api/v1")
     app.include_router(comparator_router, prefix="/api/v1")
     app.include_router(intelligence_router, prefix="/api/v1")
+    app.include_router(graph_router)
 
     return app
 
