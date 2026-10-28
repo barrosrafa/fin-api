@@ -58,16 +58,17 @@ def create_app() -> FastAPI:
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "https://fin-web.vercel.app",
+        "https://fin-web-wheat.vercel.app",
         "https://fin.com.br",
         "https://app.fin.com.br",
     ]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_origin_regex=r"^https:\/\/fin-web-[a-zA-Z0-9_-]+\.vercel\.app$" if settings.ENVIRONMENT != "production" else None,
+        allow_origin_regex=r"^https:\/\/([a-zA-Z0-9_-]+\.)?vercel\.app$",
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+        allow_headers=["*"],
     )
 
     # Security Headers Middleware
