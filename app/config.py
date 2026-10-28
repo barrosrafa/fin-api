@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # Database (PostgreSQL 18 / TimescaleDB on Neon)
     DATABASE_URL: str = (
-        "postgresql+asyncpg://neondb_owner:npg_pwONKPD13RiC@ep-ancient-art-b5mstl4r-pooler.c-7.us-east-2.aws.neon.tech/neondb?ssl=require"
+        "postgresql+asyncpg://neondb_owner:your_password_here@ep-ancient-art-b5mstl4r-pooler.c-7.us-east-2.aws.neon.tech/neondb?ssl=require"
     )
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20

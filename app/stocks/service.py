@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 import math
 from typing import Optional, List
 from sqlalchemy import text
@@ -402,6 +403,8 @@ class StockService:
             )
             res = await db_session.execute(stmt, {"ticker": t})
             row = res.mappings().first()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Stock ticker '{t}' not found")
             if row:
                 name = row["nome_empresarial"] or name
                 tipo = str(row["tipo_ativo"]) if row["tipo_ativo"] else tipo
@@ -495,6 +498,8 @@ class StockService:
             )
             res = await db_session.execute(stmt, {"ticker": t})
             row = res.mappings().first()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Stock ticker '{t}' not found")
             if row:
                 sec_lower = f"{row.get('setor') or ''} {row.get('subsetor') or ''} {row.get('segmento') or ''}".lower()
                 if any(k in sec_lower for k in ["banco", "financeir", "intermedi", "previd"]):
@@ -1004,6 +1009,8 @@ class StockService:
                 ORDER BY data_referencia DESC LIMIT 1
             ) inf ON TRUE
             WHERE a.tipo_ativo::text = 'ACAO'
+              AND (inf.dividend_yield IS NULL OR inf.dividend_yield <= 40.0)
+              AND (cd.preco_fechamento IS NULL OR cd.preco_fechamento >= 1.0)
             ORDER BY {order_col}
             LIMIT :limit;
             """

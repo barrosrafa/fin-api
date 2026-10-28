@@ -100,17 +100,6 @@ async def get_demo_positions(
             )
         )
 
-    # If positions were empty, fallback with fixed income position
-    if not items:
-        items = [
-            DemoPositionItem(ticker="PETR4", type="AÇÃO", shares=800, price=38.45, total=30760.0, yieldAnn=14.8, monthlyEstimate=379.37),
-            DemoPositionItem(ticker="VALE3", type="AÇÃO", shares=400, price=62.10, total=24840.0, yieldAnn=9.2, monthlyEstimate=190.44),
-            DemoPositionItem(ticker="HGLG11", type="FII", shares=250, price=164.20, total=41050.0, yieldAnn=8.65, monthlyEstimate=295.91),
-            DemoPositionItem(ticker="KNIP11", type="FII", shares=500, price=94.80, total=47400.0, yieldAnn=11.2, monthlyEstimate=442.40),
-            DemoPositionItem(ticker="BOVA11", type="ETF", shares=150, price=128.50, total=19275.0, yieldAnn=0.0, monthlyEstimate=0.0),
-            DemoPositionItem(ticker="TESOURO IPCA+ 2035", type="RENDA FIXA", shares=12, price=2240.80, total=26889.6, yieldAnn=6.48, monthlyEstimate=145.20),
-        ]
-
     return items
 
 

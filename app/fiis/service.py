@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from typing import Optional, List
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +64,8 @@ class FIIService:
             )
             res = await db_session.execute(stmt, {"ticker": t})
             row = res.mappings().first()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"FII ticker '{t}' not found")
             if row:
                 id_ativo = row["id_ativo"]
                 name = row["nome"]
@@ -258,6 +261,8 @@ class FIIService:
                 ORDER BY data_pregao DESC LIMIT 1
             ) cd ON TRUE
             WHERE a.tipo_ativo::text = 'FII'
+              AND (df.dividend_yield IS NULL OR df.dividend_yield <= 40.0)
+              AND (cd.preco_fechamento IS NULL OR cd.preco_fechamento >= 1.0)
             ORDER BY {order_col}
             LIMIT :limit;
             """

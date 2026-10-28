@@ -36,7 +36,15 @@ class MarketService:
         self.arq_pool = arq_pool
 
     async def get_benchmarks(self, db_session: AsyncSession) -> List[BenchmarkItem]:
-        """Returns benchmarks from market.benchmark and market.benchmark_serie."""
+        """Returns benchmarks from market.benchmark and market.benchmark_serie with Redis caching."""
+        if self.redis:
+            try:
+                cached = await self.redis.get("cache:benchmarks")
+                if cached:
+                    raw_list = json.loads(cached)
+                    return [BenchmarkItem(**item) for item in raw_list]
+            except Exception:
+                pass
         stmt = text(
             """
             SELECT b.codigo, b.nome, 
@@ -72,24 +80,38 @@ class MarketService:
                 FROM market.benchmark_serie s
                 JOIN market.benchmark b ON b.id_benchmark = s.id_benchmark
                 WHERE b.codigo = :codigo
-                ORDER BY s.data_referencia ASC
+                ORDER BY s.data_referencia DESC
                 LIMIT 7;
                 """
             )
             spark_res = await db_session.execute(spark_stmt, {"codigo": r["codigo"]})
-            spark_vals = [float(val[0]) for val in spark_res.fetchall()]
+            spark_vals = [float(val[0]) for val in spark_res.fetchall()][::-1]
             if not spark_vals:
                 spark_vals = [float(r["last_val"])] * 5
+            
+            # Compute actual percentage change from last 2 points if available
+            change_pct = float(r["last_change"])
+            if len(spark_vals) >= 2 and spark_vals[-2] > 0:
+                change_pct = round(((spark_vals[-1] - spark_vals[-2]) / spark_vals[-2]) * 100.0, 2)
 
             benchmarks.append(
                 BenchmarkItem(
                     name=r["nome"],
                     ticker=r["codigo"],
                     value=float(r["last_val"]),
-                    change=float(r["last_change"]),
+                    change=change_pct,
                     sparkline=spark_vals,
                 )
             )
+        if self.redis and benchmarks:
+            try:
+                await self.redis.set(
+                    "cache:benchmarks",
+                    json.dumps([b.model_dump() for b in benchmarks]),
+                    ex=60,
+                )
+            except Exception:
+                pass
         return benchmarks
 
     async def get_assets(

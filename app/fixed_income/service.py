@@ -16,37 +16,43 @@ class FixedIncomeService:
         curves: List[YieldCurvePoint] = []
 
         if db_session is not None:
-            # 1. Fetch real bonds from core.ativo and market.cotacao_diaria
+            # 1. Fetch real bonds from asset_details.tesouro_direto and core.ativo
             b_stmt = text(
                 """
                 SELECT 
                     a.ticker,
-                    cd.preco_fechamento
-                FROM core.ativo a
-                JOIN market.cotacao_diaria cd ON cd.id_ativo = a.id_ativo
-                WHERE a.tipo_ativo::text = 'TESOURO'
-                ORDER BY a.ticker;
+                    td.tipo_titulo,
+                    td.indexador,
+                    COALESCE(td.taxa_compra, td.taxa_venda, 10.0) as taxa,
+                    td.vencimento,
+                    COALESCE(td.pu, 1000.0) as pu
+                FROM asset_details.tesouro_direto td
+                JOIN core.ativo a ON a.id_ativo = td.id_ativo
+                WHERE td.vencimento >= CURRENT_DATE ORDER BY td.vencimento ASC;
                 """
             )
             b_res = await db_session.execute(b_stmt)
-            bond_meta = {
-                "LFT29": {"name": "Tesouro Selic 2029", "type": "SELIC", "maturity": "2029-03-01", "rate": 11.25},
-                "LTN27": {"name": "Tesouro Prefixado 2027", "type": "PREFIXADO", "maturity": "2027-01-01", "rate": 12.15},
-                "LTN31": {"name": "Tesouro Prefixado 2031", "type": "PREFIXADO", "maturity": "2031-01-01", "rate": 12.60},
-                "NTNB29": {"name": "Tesouro IPCA+ 2029", "type": "IPCA", "maturity": "2029-05-15", "rate": 6.45},
-                "NTNB35": {"name": "Tesouro IPCA+ 2035", "type": "IPCA", "maturity": "2035-05-15", "rate": 6.55},
-                "NTNB45": {"name": "Tesouro IPCA+ 2045", "type": "IPCA", "maturity": "2045-05-15", "rate": 6.62},
-            }
             for row in b_res.mappings().all():
-                tk = row["ticker"]
-                meta = bond_meta.get(tk, {"name": f"Tesouro {tk}", "type": "IPCA", "maturity": "2030-01-01", "rate": 10.0})
-                pu = float(row["preco_fechamento"])
+                tipo_raw = (row["tipo_titulo"] or "").upper()
+                if "SELIC" in tipo_raw:
+                    b_type = "SELIC"
+                elif "PREFIXADO" in tipo_raw:
+                    b_type = "PREFIXADO"
+                else:
+                    b_type = "IPCA"
+
+                pu = float(row["pu"])
+                venc = row["vencimento"]
+                venc_str = venc.strftime("%Y-%m-%d") if venc else "2030-01-01"
+                venc_year = venc.year if venc else ""
+                nome = f"{row['tipo_titulo']} {venc_year}".strip()
+
                 bonds.append(
                     TreasuryBondItem(
-                        name=meta["name"],
-                        type=meta["type"],
-                        maturity_date=meta["maturity"],
-                        annual_rate_pct=meta["rate"],
+                        name=nome,
+                        type=b_type,
+                        maturity_date=venc_str,
+                        annual_rate_pct=float(row["taxa"]),
                         unit_price=pu,
                         min_investment_value=round(pu * 0.01, 2) if pu > 1000 else round(pu * 0.05, 2),
                     )
@@ -74,25 +80,5 @@ class FixedIncomeService:
                         inflation_implied_pct=infl,
                     )
                 )
-
-        if not bonds:
-            bonds = [
-                TreasuryBondItem(name="Tesouro Selic 2029", type="SELIC", maturity_date="2029-03-01", annual_rate_pct=11.25, unit_price=15240.50, min_investment_value=152.40),
-                TreasuryBondItem(name="Tesouro Prefixado 2027", type="PREFIXADO", maturity_date="2027-01-01", annual_rate_pct=12.15, unit_price=820.40, min_investment_value=32.81),
-                TreasuryBondItem(name="Tesouro Prefixado 2031", type="PREFIXADO", maturity_date="2031-01-01", annual_rate_pct=12.60, unit_price=530.15, min_investment_value=31.80),
-                TreasuryBondItem(name="Tesouro IPCA+ 2029", type="IPCA", maturity_date="2029-05-15", annual_rate_pct=6.45, unit_price=3420.80, min_investment_value=34.20),
-                TreasuryBondItem(name="Tesouro IPCA+ 2035", type="IPCA", maturity_date="2035-05-15", annual_rate_pct=6.55, unit_price=2210.30, min_investment_value=44.20),
-                TreasuryBondItem(name="Tesouro IPCA+ 2045", type="IPCA", maturity_date="2045-05-15", annual_rate_pct=6.62, unit_price=1310.50, min_investment_value=39.31),
-            ]
-
-        if not curves:
-            curves = [
-                YieldCurvePoint(term_years=0.5, zero_rate_pct=11.25, inflation_implied_pct=4.10),
-                YieldCurvePoint(term_years=1.0, zero_rate_pct=11.80, inflation_implied_pct=4.35),
-                YieldCurvePoint(term_years=2.0, zero_rate_pct=12.15, inflation_implied_pct=4.60),
-                YieldCurvePoint(term_years=3.0, zero_rate_pct=12.35, inflation_implied_pct=4.75),
-                YieldCurvePoint(term_years=5.0, zero_rate_pct=12.55, inflation_implied_pct=4.95),
-                YieldCurvePoint(term_years=10.0, zero_rate_pct=12.75, inflation_implied_pct=5.10),
-            ]
 
         return FixedIncomeResponse(bonds=bonds, ettj_curves=curves)

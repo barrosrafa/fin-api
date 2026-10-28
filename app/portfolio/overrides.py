@@ -43,7 +43,7 @@ async def verify_user_tenant_access(
             )
         return current_user
     # Unauthenticated access only permitted for public test/demo namespaces
-    if user_id in {"demo", "test-user-1", "test-user-2", "guest"}:
+    if user_id in {"demo", "demo-investor-001", "test-user-1", "test-user-2", "guest"}:
         return None
     raise HTTPException(
         status_code=401,

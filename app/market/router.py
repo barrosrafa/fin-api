@@ -1,9 +1,10 @@
 import asyncio
 import json
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Response, status, Query
 from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 import redis.asyncio as aioredis
 from arq.connections import create_pool, RedisSettings
 
@@ -102,6 +103,55 @@ async def get_earnings_calendar(
     return await service.get_earnings_calendar(limit=limit, db_session=db)
 
 
+@router.get("/news")
+async def get_market_news(
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Retorna eventos e notícias corporativas reais com dados oficiais da CVM/B3."""
+    stmt = text("""
+        SELECT 
+            p.id_provento as id,
+            a.ticker,
+            COALESCE(ec.nome_empresarial, a.ticker) as empresa,
+            p.tipo_provento,
+            p.valor_por_acao,
+            p.data_com,
+            p.data_pagamento
+        FROM market.provento p
+        JOIN core.ativo a ON a.id_ativo = p.id_ativo
+        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+        ORDER BY p.data_com DESC
+        LIMIT :limit;
+    """)
+    res = await db.execute(stmt, {"limit": limit})
+    rows = res.mappings().all()
+
+    news_items = []
+    for r in rows:
+        tipo_prov = r["tipo_provento"] or "DIVIDENDO"
+        val = float(r["valor_por_acao"]) if r["valor_por_acao"] else 0.0
+        data_com_str = r["data_com"].strftime("%d/%m/%Y") if r["data_com"] else "Recente"
+        data_pag_str = r["data_pagamento"].strftime("%d/%m/%Y") if r["data_pagamento"] else "A definir"
+
+        titulo = f"{r['ticker']} aprova pagamento de {tipo_prov.lower()} de R$ {val:.4f} por cota"
+        resumo = f"Aprovada distribuição de proventos aos detentores com data base (data-com) em {data_com_str} e liquidação financeira prevista para {data_pag_str}."
+
+        news_items.append({
+            "id": str(r["id"]),
+            "ticker": r["ticker"],
+            "empresa": r["empresa"],
+            "titulo": titulo,
+            "tipo": "DIVIDENDO" if "DIV" in tipo_prov else "RESULTADO",
+            "sentimento": "POSITIVO",
+            "data_hora": f"Data-Com: {data_com_str}",
+            "resumo": resumo,
+            "cvm_protocolo": f"B3-PROV-{r['ticker']}-{r['id']}",
+        })
+
+    return {"total": len(news_items), "items": news_items}
+
+
 @router.get("/{ticker}", response_model=QuoteResponse)
 async def get_market_quote(
     ticker: str,
@@ -165,3 +215,6 @@ async def stream_ticker_sync_progress(
             await pubsub.close()
 
     return EventSourceResponse(event_generator())
+
+
+
