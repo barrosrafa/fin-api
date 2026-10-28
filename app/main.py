@@ -25,6 +25,8 @@ from app.analytics.router import router as analytics_router
 from app.cms.router import router as cms_router
 from app.suitability.router import router as suitability_router
 from app.brokers.router import router as brokers_router
+from app.simulator.router import router as simulator_router
+from app.rankings.router import router as rankings_router
 from app.portfolio.overrides import router as graph_router
 
 
@@ -94,6 +96,8 @@ def create_app() -> FastAPI:
     app.include_router(cms_router, prefix="/api/v1")
     app.include_router(suitability_router, prefix="/api/v1")
     app.include_router(brokers_router, prefix="/api/v1")
+    app.include_router(simulator_router, prefix="/api/v1")
+    app.include_router(rankings_router, prefix="/api/v1")
     app.include_router(graph_router)
 
     return app

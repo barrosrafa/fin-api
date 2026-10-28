@@ -60,6 +60,9 @@ async def refresh_ticker_data_task(
         raise
 
     # Step 3: Upsert into PostgreSQL 18 / TimescaleDB (market.cotacao_diaria)
+    data_pregao = canonical.collected_at.date() if hasattr(canonical, "collected_at") else datetime.now(timezone.utc).date()
+    db_success = False
+
     if db_factory is not None:
         async with db_factory() as session:
             stmt = text(
@@ -70,7 +73,7 @@ async def refresh_ticker_data_task(
                 )
                 VALUES (
                     (SELECT id_ativo FROM core.ativo WHERE ticker = :ticker LIMIT 1),
-                    CURRENT_DATE, :price, :change_pct, :volume
+                    :data_pregao, :price, :change_pct, :volume
                 )
                 ON CONFLICT (id_ativo, data_pregao) DO UPDATE SET
                     preco_fechamento = EXCLUDED.preco_fechamento,
@@ -83,14 +86,24 @@ async def refresh_ticker_data_task(
                     stmt,
                     {
                         "ticker": normalized_ticker,
+                        "data_pregao": data_pregao,
                         "price": canonical.price,
                         "change_pct": canonical.change_pct,
                         "volume": canonical.volume,
                     },
                 )
                 await session.commit()
+                db_success = True
             except Exception as e:
-                logger.warning(f"DB upsert warning for {normalized_ticker}: {e}")
+                logger.error(f"DB upsert failure for {normalized_ticker}: {e}")
+                if redis is not None:
+                    await redis.set(
+                        f"sync:{normalized_ticker}",
+                        json.dumps({"status": "failed", "progress": 0.0, "message": f"Database write failed: {str(e)}"}),
+                        ex=300,
+                    )
+                    await redis.publish(f"channel:sync:{normalized_ticker}", json.dumps({"status": "failed"}))
+                raise
 
     # Step 4: Populate Redis cache
     quote_data = canonical.model_dump()

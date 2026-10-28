@@ -24,6 +24,7 @@ class ETFService:
         policy = "ACUMULATIVO"
         max_lending_limit_pct = 30.0
 
+        db_holdings = []
         if db_session is not None:
             stmt = text(
                 """
@@ -71,9 +72,31 @@ class ETFService:
                 if row["limite_aluguel_pl_pct"] is not None:
                     max_lending_limit_pct = float(row["limite_aluguel_pl_pct"])
 
+                # Query open holdings if populated
+                h_stmt = text(
+                    """
+                    SELECT codigo_ativo, descricao_ativo, setor_economico, peso_percentual
+                    FROM market.etf_composicao_carteira
+                    WHERE id_ativo_fundo = :id_ativo
+                    ORDER BY peso_percentual DESC;
+                    """
+                )
+                h_res = await db_session.execute(h_stmt, {"id_ativo": row["id_ativo"]})
+                h_rows = h_res.mappings().all()
+                if h_rows:
+                    for hr in h_rows:
+                        db_holdings.append(
+                            ETFUnderlyingAsset(
+                                ticker=hr["codigo_ativo"],
+                                name=hr["descricao_ativo"] or hr["codigo_ativo"],
+                                weight_pct=float(hr["peso_percentual"]),
+                                sector=hr["setor_economico"] or "Diversificado",
+                            )
+                        )
+
         spread_pct = round(((current_price - nav_per_share) / nav_per_share) * 100, 3)
 
-        holdings = [
+        holdings = db_holdings or [
             ETFUnderlyingAsset(ticker="VALE3", name="Vale S.A.", weight_pct=13.2, sector="Materiais Básicos"),
             ETFUnderlyingAsset(ticker="PETR4", name="Petrobras PN", weight_pct=11.5, sector="Petróleo e Gás"),
             ETFUnderlyingAsset(ticker="ITUB4", name="Itaú Unibanco PN", weight_pct=8.4, sector="Financeiro"),
