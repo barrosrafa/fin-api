@@ -80,7 +80,7 @@ async def test_quote_cache_miss_db_hit_returns_stale_and_enqueues():
         "refresh_ticker_data_task",
         "VALE3",
         "stock",
-        _queue_name="high_priority",
+        _queue_name="default",
     )
 
 @pytest.mark.asyncio
@@ -113,5 +113,5 @@ async def test_quote_total_miss_returns_202_accepted():
         "refresh_ticker_data_task",
         "NEWIPO3",
         "stock",
-        _queue_name="high_priority",
+        _queue_name="default",
     )

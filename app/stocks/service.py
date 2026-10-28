@@ -977,7 +977,7 @@ class StockService:
                 a.ticker,
                 COALESCE(ec.nome_empresarial, a.ticker) as nome,
                 COALESCE(ec.setor, 'Geral') as setor,
-                COALESCE(cd.preco_fechamento, 10.0) as preco,
+                cd.preco_fechamento as preco,
                 COALESCE(inf.dividend_yield, 0.0) as dy,
                 inf.pl,
                 inf.pvp,
@@ -985,7 +985,7 @@ class StockService:
                 inf.roic,
                 inf.margem_liquida,
                 inf.ev_ebitda,
-                COALESCE(cd.volume_total, a.volume_medio, 100000.0) as liquidez
+                COALESCE(cd.volume_total, a.volume_medio) as liquidez
             FROM core.ativo a
             LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
             LEFT JOIN LATERAL (
@@ -1018,7 +1018,7 @@ class StockService:
                     ticker=r["ticker"],
                     name=r["nome"],
                     sector=r["setor"],
-                    price=float(r["preco"]),
+                    price=float(r["preco"]) if r["preco"] is not None else None,
                     dy=float(r["dy"]),
                     pl=float(r["pl"]) if r["pl"] is not None else None,
                     pvp=float(r["pvp"]) if r["pvp"] is not None else None,
@@ -1026,7 +1026,7 @@ class StockService:
                     roic=float(r["roic"]) if r["roic"] is not None else None,
                     margem_liquida=float(r["margem_liquida"]) if r["margem_liquida"] is not None else None,
                     ev_ebitda=float(r["ev_ebitda"]) if r["ev_ebitda"] is not None else None,
-                    liquidez=float(r["liquidez"]),
+                    liquidez=float(r["liquidez"]) if r["liquidez"] is not None else None,
                 )
             )
 

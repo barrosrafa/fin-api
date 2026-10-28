@@ -22,6 +22,7 @@ from app.market.schemas import (
     EarningsCalendarResponse,
 )
 from app.core.logging import logger
+from app.worker.settings import QUEUE_DEFAULT
 
 
 class MarketService:
@@ -138,12 +139,12 @@ class MarketService:
                 a.tipo_ativo::text as tipo,
                 COALESCE(ed.indice_referencia, ec.setor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Imobiliário' WHEN 'ETF' THEN 'Índice Global' ELSE 'Geral' END) as setor,
                 COALESCE(ec.subsetor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Tijolo / Papel' WHEN 'ETF' THEN 'Renda Variável' ELSE 'Diversificado' END) as subsetor,
-                COALESCE(cd.preco_fechamento, a.volume_medio, 10.0) as preco,
+                cd.preco_fechamento as preco,
                 COALESCE(cd.variacao_percentual, 0.0) as var24h,
                 cd12m.preco_12m,
                 spark.historico_5d,
                 COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) as dy,
-                COALESCE(inf.pvp, df.pvp, 1.0) as pvp,
+                COALESCE(inf.pvp, df.pvp) as pvp,
                 COALESCE(inf.pl, 0.0) as pl,
                 COALESCE(inf.valor_mercado, df.patrimonio_liquido, 0.0) as market_cap
             FROM core.ativo a
@@ -195,8 +196,8 @@ class MarketService:
 
         results = []
         for r in rows:
-            p = float(r["preco"])
-            dy = float(r["dy"])
+            p = float(r["preco"]) if r["preco"] is not None else None
+            dy = float(r["dy"]) if r["dy"] is not None else 0.0
             pvp = float(r["pvp"]) if r["pvp"] is not None else None
             pl = float(r["pl"]) if r["pl"] is not None and float(r["pl"]) != 0 else None
 
@@ -213,11 +214,13 @@ class MarketService:
             spark_raw = r.get("historico_5d")
             if spark_raw and isinstance(spark_raw, (list, tuple)) and len(spark_raw) >= 2:
                 spark = [round(float(v), 2) for v in spark_raw if v is not None]
-            else:
+            elif p is not None:
                 spark = [round(p, 2)]
+            else:
+                spark = []
 
             preco_12m = float(r["preco_12m"]) if r.get("preco_12m") is not None and float(r["preco_12m"]) > 0 else None
-            if preco_12m is not None and preco_12m > 0:
+            if p is not None and preco_12m is not None and preco_12m > 0:
                 calc_12m = ((p - preco_12m) / preco_12m) * 100.0
                 if r["tipo"] == "ACAO" and calc_12m < -100.0:
                     calc_12m = -100.0
@@ -264,7 +267,7 @@ class MarketService:
                 to_char(p.data_com, 'YYYY-MM-DD') as dt_com,
                 to_char(p.data_pagamento, 'YYYY-MM-DD') as dt_pag,
                 p.valor_por_acao,
-                COALESCE(cd.preco_fechamento, 10.0) as cotacao
+                cd.preco_fechamento as cotacao
             FROM market.provento p
             JOIN core.ativo a ON a.id_ativo = p.id_ativo
             LEFT JOIN LATERAL (
@@ -283,8 +286,8 @@ class MarketService:
         items = []
         for r in rows:
             val = float(r["valor_por_acao"])
-            price = float(r["cotacao"])
-            yield_pct = round((val / price) * 100, 2) if price > 0 else 0.0
+            price = float(r["cotacao"]) if r["cotacao"] is not None else None
+            yield_pct = round((val / price) * 100, 2) if price and price > 0 else 0.0
             items.append(
                 DividendCalendarItem(
                     id=str(r["id_provento"]),
@@ -381,7 +384,7 @@ class MarketService:
                     "refresh_ticker_data_task",
                     normalized,
                     asset_class,
-                    _queue_name="high_priority",
+                    _queue_name=QUEUE_DEFAULT,
                 )
             except Exception as e:
                 logger.warning(f"Failed to enqueue arq refresh job for {normalized}: {e}")

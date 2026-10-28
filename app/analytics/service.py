@@ -177,7 +177,7 @@ class AnalyticsService:
                 to_char(p.data_pagamento, 'YYYY-MM-DD') as dt_pag,
                 COALESCE(p.valor_por_acao, 0.0) as valor_bruto,
                 COALESCE(p.aliquota_retencao_fonte, CASE WHEN p.tipo_provento::text = 'JCP' THEN 15.0 ELSE 0.0 END) as aliquota_ir,
-                COALESCE(cd.preco_fechamento, 10.0) as cotacao,
+                cd.preco_fechamento as cotacao,
                 COALESCE(p.moeda, 'BRL') as moeda
             FROM market.provento p
             JOIN core.ativo a ON a.id_ativo = p.id_ativo
@@ -200,8 +200,8 @@ class AnalyticsService:
             bruto = float(r["valor_bruto"])
             aliquota = float(r["aliquota_ir"])
             liquido = bruto * (1.0 - (aliquota / 100.0))
-            cotacao = float(r["cotacao"])
-            yield_ev = (liquido / cotacao * 100.0) if cotacao > 0 else 0.0
+            cotacao = float(r["cotacao"]) if r["cotacao"] is not None else None
+            yield_ev = (liquido / cotacao * 100.0) if cotacao and cotacao > 0 else 0.0
 
             items.append(
                 DividendCalendarDetailItem(
@@ -214,8 +214,8 @@ class AnalyticsService:
                     aliquota_ir_pct=round(aliquota, 2),
                     valor_liquido=round(liquido, 4),
                     moeda=r["moeda"],
-                    cotacao_atual=round(cotacao, 2),
-                    yield_evento_pct=round(yield_ev, 2),
+                    cotacao_atual=round(cotacao, 2) if cotacao is not None else None,
+                    yield_evento_pct=round(yield_ev, 2) if cotacao is not None else None,
                 )
             )
         return items

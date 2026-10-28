@@ -75,7 +75,7 @@ class AssetSummaryResponse(BaseModel):
     type: str  # ACAO, FII, ETF
     sector: str
     subsector: Optional[str] = None
-    currentPrice: float
+    currentPrice: Optional[float] = None
     change24h: float
     change12m: Optional[float] = None
     dividendYield: float

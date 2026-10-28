@@ -1,0 +1,40 @@
+name: "CI — fin-api (FastAPI & ARQ Worker)"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  quality-and-test:
+    name: "Lint, Typecheck & Pytest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install Dependencies
+        run: uv sync --frozen || uv sync
+
+      - name: Run Ruff Lint Check
+        run: uv run ruff check app/
+
+      - name: Run Pytest Test Suite
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: uv run pytest tests/ -v
+
+      - name: Verify Docker Build
+        run: docker build -t fin-api:${{ github.sha }} .

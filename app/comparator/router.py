@@ -22,7 +22,7 @@ class NormalizedSeriesPoint(BaseModel):
 
 class AssetComparisonMetrics(BaseModel):
     ticker: str
-    price: float
+    price: Optional[float] = None
     change_12m: Optional[float] = None
     dy_pct: Optional[float] = None
     pvp: Optional[float] = None
@@ -69,16 +69,16 @@ async def compare_assets(
         SELECT 
             a.ticker,
             a.tipo_ativo::text as tipo,
-            COALESCE(cd.preco_fechamento, 10.0) as preco,
+            cd.preco_fechamento as preco,
             COALESCE(cd.variacao_percentual, 0.0) as var24h,
             cd12m.preco_12m,
             COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) as dy,
-            COALESCE(inf.pvp, df.pvp, 1.0) as pvp,
+            COALESCE(inf.pvp, df.pvp) as pvp,
             COALESCE(inf.pl, 0.0) as pl,
-            COALESCE(inf.roe, 15.0) as roe,
-            COALESCE(inf.divida_liquida_pl, 0.5) as divida_liquida_pl,
-            COALESCE(ed.taxa_administracao_total, ed.taxa_administracao, 0.30) as ter,
-            COALESCE(ed.gestor, ec.nome_empresarial, 'Gestora B3') as gestora
+            inf.roe as roe,
+            inf.divida_liquida_pl as divida_liquida_pl,
+            COALESCE(ed.taxa_administracao_total, ed.taxa_administracao) as ter,
+            COALESCE(ed.gestor, ec.nome_empresarial) as gestora
         FROM core.ativo a
         LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
         LEFT JOIN asset_details.etf_detalhe ed ON ed.id_ativo = a.id_ativo
@@ -162,7 +162,7 @@ async def compare_assets(
                 continue
             raise HTTPException(status_code=404, detail=f"Ativo '{t}' não encontrado no catálogo para comparação.")
 
-        p = float(r["preco"])
+        p = float(r["preco"]) if r.get("preco") is not None else None
         dy = float(r["dy"]) if r.get("dy") is not None else None
         pvp = float(r["pvp"]) if r.get("pvp") is not None else None
         pl = float(r["pl"]) if r.get("pl") is not None and float(r["pl"]) != 0 else None
@@ -172,7 +172,7 @@ async def compare_assets(
         divida = float(r["divida_liquida_pl"]) if r.get("divida_liquida_pl") is not None else None
 
         preco_12m = float(r["preco_12m"]) if r.get("preco_12m") is not None and float(r["preco_12m"]) > 0 else None
-        if preco_12m is not None and preco_12m > 0:
+        if p is not None and preco_12m is not None and preco_12m > 0:
             calc_12m = ((p - preco_12m) / preco_12m) * 100.0
             if r.get("tipo") == "ACAO" and calc_12m < -100.0:
                 calc_12m = -100.0

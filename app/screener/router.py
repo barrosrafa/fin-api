@@ -24,13 +24,13 @@ class ScreenerItemResponse(BaseModel):
     name: str
     asset_class: str
     sector: str
-    price: float
+    price: Optional[float] = None
     change_24h: float
     dy_pct: float
     pvp: Optional[float] = None
     pl: Optional[float] = None
     roe_pct: Optional[float] = None
-    liquidity_daily: float
+    liquidity_daily: Optional[float] = None
 
 
 class ScreenerQueryResponse(BaseModel):
@@ -56,13 +56,13 @@ async def query_screener(
             COALESCE(ec.nome_empresarial, a.ticker) as nome,
             a.tipo_ativo::text as tipo,
             COALESCE(ec.setor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Imobiliário' WHEN 'ETF' THEN 'Índice B3' ELSE 'Geral' END) as setor,
-            COALESCE(cd.preco_fechamento, 10.0) as preco,
+            cd.preco_fechamento as preco,
             COALESCE(cd.variacao_percentual, 0.0) as var24h,
             COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) as dy,
-            COALESCE(inf.pvp, df.pvp, 1.0) as pvp,
-            COALESCE(inf.pl, 0.0) as pl,
-            COALESCE(inf.roe, 0.0) as roe,
-            COALESCE(cd.volume_total, a.volume_medio, 100000.0) as liquidez
+            COALESCE(inf.pvp, df.pvp) as pvp,
+            inf.pl as pl,
+            inf.roe as roe,
+            COALESCE(cd.volume_total, a.volume_medio) as liquidez
         FROM core.ativo a
         LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
         LEFT JOIN LATERAL (
@@ -115,13 +115,13 @@ async def query_screener(
                 name=r["nome"],
                 asset_class=r["tipo"],
                 sector=r["setor"],
-                price=float(r["preco"]),
+                price=float(r["preco"]) if r["preco"] is not None else None,
                 change_24h=float(r["var24h"]),
                 dy_pct=dy,
                 pvp=pvp,
                 pl=pl,
                 roe_pct=roe,
-                liquidity_daily=float(r["liquidez"]),
+                liquidity_daily=float(r["liquidez"]) if r["liquidez"] is not None else None,
             )
         )
 

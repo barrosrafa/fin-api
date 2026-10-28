@@ -71,5 +71,5 @@ class DividendCalendarDetailItem(BaseModel):
     aliquota_ir_pct: float
     valor_liquido: float
     moeda: str = "BRL"
-    cotacao_atual: float
-    yield_evento_pct: float
+    cotacao_atual: Optional[float] = None
+    yield_evento_pct: Optional[float] = None

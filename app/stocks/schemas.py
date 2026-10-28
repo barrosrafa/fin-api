@@ -218,7 +218,7 @@ class StockRankingItem(BaseModel):
     ticker: str
     name: str
     sector: str
-    price: float
+    price: Optional[float] = None
     dy: float
     pl: Optional[float] = None
     pvp: Optional[float] = None
@@ -226,7 +226,7 @@ class StockRankingItem(BaseModel):
     roic: Optional[float] = None
     margem_liquida: Optional[float] = None
     ev_ebitda: Optional[float] = None
-    liquidez: float
+    liquidez: Optional[float] = None
 
 
 class DividendMatrixRow(BaseModel):
