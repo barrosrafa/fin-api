@@ -21,8 +21,11 @@ class TickerCatalog:
     async def is_valid(self, ticker: str) -> bool:
         """Returns True if ticker is in the official pre-seeded catalog (O(1))."""
         normalized = ticker.strip().upper()
-        res = await self.redis.sismember(self.catalog_key, normalized)
-        return bool(res)
+        try:
+            res = await self.redis.sismember(self.catalog_key, normalized)
+            return bool(res)
+        except Exception:
+            return False
 
     async def add_tickers(self, tickers: Sequence[str]) -> int:
         """Adds a batch of tickers to the catalog."""

@@ -294,21 +294,26 @@ class MarketService:
             if not is_valid:
                 raise AssetNotListedException(normalized)
 
-        # Check Negative Cache
+        # Check Negative Cache & Redis Cache
         if self.redis is not None:
-            is_failed = await self.redis.get(f"failed_ticker:{normalized}")
-            if is_failed and (is_failed == b"1" or is_failed == "1"):
-                raise FinApiException("Dados temporariamente indisponíveis nas fontes externas", status_code=422)
+            try:
+                is_failed = await self.redis.get(f"failed_ticker:{normalized}")
+                if is_failed and (is_failed == b"1" or is_failed == "1"):
+                    raise FinApiException("Dados temporariamente indisponíveis nas fontes externas", status_code=422)
 
-            # Check Redis Cache
-            cached_bytes = await self.redis.get(f"quote:{normalized}")
-            if cached_bytes:
-                data = json.loads(cached_bytes.decode("utf-8") if isinstance(cached_bytes, bytes) else cached_bytes)
-                return QuoteResponse(
-                    ticker=normalized,
-                    status="fresh",
-                    quote=TickerQuote(**data),
-                )
+                # Check Redis Cache
+                cached_bytes = await self.redis.get(f"quote:{normalized}")
+                if cached_bytes:
+                    data = json.loads(cached_bytes.decode("utf-8") if isinstance(cached_bytes, bytes) else cached_bytes)
+                    return QuoteResponse(
+                        ticker=normalized,
+                        status="fresh",
+                        quote=TickerQuote(**data),
+                    )
+            except FinApiException:
+                raise
+            except Exception:
+                pass
 
         # Check PostgreSQL
         db_quote = None
