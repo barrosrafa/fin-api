@@ -7,6 +7,9 @@ from app.fiis.schemas import (
     FIIBrickScoreAxis,
     FIITenantConcentration,
     FIICRIHolding,
+    FIIRankingItem,
+    FIIVacancyPoint,
+    FIIVacancyHistoryResponse,
 )
 
 
@@ -205,3 +208,131 @@ class FIIService:
                 "rendimento_distribuido_por_cota": 1.10,
             },
         )
+
+    async def get_fiis_ranking(
+        self,
+        sort_by: str = "dy",
+        limit: int = 50,
+        db_session: Optional[AsyncSession] = None,
+    ) -> List[FIIRankingItem]:
+        order_col = {
+            "dy": "COALESCE(df.dividend_yield, 0.0) DESC",
+            "pvp": "COALESCE(df.pvp, 1.0) ASC",
+            "vacancia": "COALESCE(fhv.vacancia_fisica_pct, 0.0) ASC",
+            "liquidez": "COALESCE(cd.volume_total, a.volume_medio, 0.0) DESC",
+        }.get(sort_by.lower(), "COALESCE(df.dividend_yield, 0.0) DESC")
+
+        if db_session is None:
+            return [
+                FIIRankingItem(rank=1, ticker="HGLG11", name="CSHG Logística", segment="Logística", price=162.50, dy_12m=8.95, pvp=0.98, net_worth=5400000000.0, physical_vacancy_pct=5.5, financial_vacancy_pct=4.1, liquidity_daily=8500000.0),
+                FIIRankingItem(rank=2, ticker="KNIP11", name="Kinea Rendimentos", segment="Papel / CRI", price=92.10, dy_12m=11.20, pvp=0.96, net_worth=7800000000.0, physical_vacancy_pct=0.0, financial_vacancy_pct=0.0, liquidity_daily=12000000.0),
+                FIIRankingItem(rank=3, ticker="MXRF11", name="Maxi Renda", segment="Híbrido", price=10.15, dy_12m=12.40, pvp=1.02, net_worth=3200000000.0, physical_vacancy_pct=0.0, financial_vacancy_pct=0.0, liquidity_daily=15400000.0),
+            ]
+
+        stmt = text(
+            f"""
+            SELECT 
+                a.ticker,
+                COALESCE(ec.nome_empresarial, a.ticker) as nome,
+                COALESCE(ec.subsetor, 'Imobiliário') as segment,
+                COALESCE(cd.preco_fechamento, 100.0) as preco,
+                COALESCE(df.dividend_yield, 0.0) as dy,
+                COALESCE(df.pvp, 1.0) as pvp,
+                COALESCE(df.patrimonio_liquido, 1000000000.0) as pl,
+                COALESCE(fhv.vacancia_fisica_pct, 0.0) as vf,
+                COALESCE(fhv.vacancia_financeira_pct, 0.0) as vfin,
+                COALESCE(cd.volume_total, a.volume_medio, 100000.0) as liquidez
+            FROM core.ativo a
+            LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
+            LEFT JOIN LATERAL (
+                SELECT vacancia_fisica_pct, vacancia_financeira_pct 
+                FROM asset_details.fii_historico_vacancia 
+                WHERE id_ativo = a.id_ativo 
+                ORDER BY data_referencia DESC LIMIT 1
+            ) fhv ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT preco_fechamento, volume_total 
+                FROM market.cotacao_diaria 
+                WHERE id_ativo = a.id_ativo 
+                ORDER BY data_pregao DESC LIMIT 1
+            ) cd ON TRUE
+            WHERE a.tipo_ativo::text = 'FII'
+            ORDER BY {order_col}
+            LIMIT :limit;
+            """
+        )
+        res = await db_session.execute(stmt, {"limit": limit})
+        rows = res.mappings().all()
+
+        items = []
+        for idx, r in enumerate(rows, start=1):
+            items.append(
+                FIIRankingItem(
+                    rank=idx,
+                    ticker=r["ticker"],
+                    name=r["nome"],
+                    segment=r["segment"],
+                    price=float(r["preco"]),
+                    dy_12m=float(r["dy"]),
+                    pvp=float(r["pvp"]),
+                    net_worth=float(r["pl"]),
+                    physical_vacancy_pct=float(r["vf"]),
+                    financial_vacancy_pct=float(r["vfin"]),
+                    liquidity_daily=float(r["liquidez"]),
+                )
+            )
+
+        if not items:
+            return await self.get_fiis_ranking(sort_by=sort_by, limit=limit, db_session=None)
+        return items
+
+    async def get_fii_vacancy_history(
+        self,
+        ticker: str,
+        db_session: Optional[AsyncSession] = None,
+    ) -> FIIVacancyHistoryResponse:
+        t = ticker.upper()
+        if db_session is None:
+            pts = [
+                FIIVacancyPoint(data_referencia="2025-06-30", vacancia_fisica_pct=6.4, vacancia_financeira_pct=4.9, abl_propria_m2=885000.0, area_ocupada_m2=828360.0),
+                FIIVacancyPoint(data_referencia="2025-09-30", vacancia_fisica_pct=5.9, vacancia_financeira_pct=4.5, abl_propria_m2=885000.0, area_ocupada_m2=832785.0),
+                FIIVacancyPoint(data_referencia="2025-12-31", vacancia_fisica_pct=5.5, vacancia_financeira_pct=4.1, abl_propria_m2=885000.0, area_ocupada_m2=836325.0),
+                FIIVacancyPoint(data_referencia="2026-03-31", vacancia_fisica_pct=5.2, vacancia_financeira_pct=3.8, abl_propria_m2=885000.0, area_ocupada_m2=838980.0),
+                FIIVacancyPoint(data_referencia="2026-06-30", vacancia_fisica_pct=4.9, vacancia_financeira_pct=3.5, abl_propria_m2=885000.0, area_ocupada_m2=841635.0),
+                FIIVacancyPoint(data_referencia="2026-09-30", vacancia_fisica_pct=4.7, vacancia_financeira_pct=3.2, abl_propria_m2=885000.0, area_ocupada_m2=843405.0),
+            ]
+            return FIIVacancyHistoryResponse(ticker=t, history=pts)
+
+        stmt = text(
+            """
+            SELECT 
+                fhv.data_referencia::text,
+                fhv.vacancia_fisica_pct,
+                fhv.vacancia_financeira_pct,
+                fhv.abl_propria_m2,
+                fhv.area_ocupada_m2
+            FROM asset_details.fii_historico_vacancia fhv
+            JOIN core.ativo a ON a.id_ativo = fhv.id_ativo
+            WHERE a.ticker = :ticker
+            ORDER BY fhv.data_referencia ASC;
+            """
+        )
+        res = await db_session.execute(stmt, {"ticker": t})
+        rows = res.mappings().all()
+
+        if not rows:
+            return await self.get_fii_vacancy_history(ticker=t, db_session=None)
+
+        pts = [
+            FIIVacancyPoint(
+                data_referencia=r["data_referencia"],
+                vacancia_fisica_pct=float(r["vacancia_fisica_pct"]),
+                vacancia_financeira_pct=float(r["vacancia_financeira_pct"]),
+                abl_propria_m2=float(r["abl_propria_m2"]) if r["abl_propria_m2"] is not None else None,
+                area_ocupada_m2=float(r["area_ocupada_m2"]) if r["area_ocupada_m2"] is not None else None,
+            )
+            for r in rows
+        ]
+        return FIIVacancyHistoryResponse(ticker=t, history=pts)
+

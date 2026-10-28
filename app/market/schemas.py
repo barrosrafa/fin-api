@@ -95,3 +95,53 @@ class DividendCalendarItem(BaseModel):
     paymentDate: str
     valuePerShare: float
     yieldOnCostPct: float
+
+
+class IbovPEPoint(BaseModel):
+    data_referencia: str
+    fechamento_indice: float
+    pl_ponderado: float
+    pl_mediano: float
+    media_historica_5y: float
+    banda_superior_1dp: float
+    banda_inferior_1dp: float
+    banda_superior_2dp: float
+    banda_inferior_2dp: float
+
+
+class IbovPEResponse(BaseModel):
+    total_records: int
+    items: List[IbovPEPoint] = Field(default_factory=list)
+
+
+class InvestorFlowItem(BaseModel):
+    data_pregao: str
+    categoria_investidor: str
+    compras_reais: float
+    vendas_reais: float
+    saldo_liquido: float
+    saldo_acumulado_mes: Optional[float] = None
+    saldo_acumulado_ano: Optional[float] = None
+    participacao_pct: Optional[float] = None
+
+
+class InvestorFlowResponse(BaseModel):
+    total_records: int
+    items: List[InvestorFlowItem] = Field(default_factory=list)
+
+
+class EarningsCalendarItem(BaseModel):
+    ticker: str
+    nome_empresarial: str
+    periodo_referencia: str
+    tipo_documento: str
+    data_prevista: str
+    horario_previsto: Optional[str] = "APOS_FECHAMENTO"
+    status: str = "CONFIRMADO"
+    link_webcast: Optional[str] = None
+
+
+class EarningsCalendarResponse(BaseModel):
+    total: int
+    items: List[EarningsCalendarItem] = Field(default_factory=list)
+

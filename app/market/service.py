@@ -14,6 +14,12 @@ from app.market.schemas import (
     BenchmarkItem,
     AssetSummaryResponse,
     DividendCalendarItem,
+    IbovPEPoint,
+    IbovPEResponse,
+    InvestorFlowItem,
+    InvestorFlowResponse,
+    EarningsCalendarItem,
+    EarningsCalendarResponse,
 )
 from app.core.logging import logger
 
@@ -380,3 +386,165 @@ class MarketService:
 
     async def get_sync_status(self, ticker: str) -> SyncStatusResponse:
         return SyncStatusResponse(ticker=ticker.upper(), status="completed", progress=100.0)
+
+    async def get_ibov_pe_history(
+        self,
+        limit: int = 60,
+        db_session: Optional[AsyncSession] = None,
+    ) -> IbovPEResponse:
+        if db_session is None:
+            pts = [
+                IbovPEPoint(data_referencia="2024-01-02", fechamento_indice=132697.0, pl_ponderado=8.45, pl_mediano=8.10, media_historica_5y=10.50, banda_superior_1dp=12.60, banda_inferior_1dp=8.40, banda_superior_2dp=14.70, banda_inferior_2dp=6.30),
+                IbovPEPoint(data_referencia="2024-06-03", fechamento_indice=122032.0, pl_ponderado=7.85, pl_mediano=7.50, media_historica_5y=10.40, banda_superior_1dp=12.45, banda_inferior_1dp=8.35, banda_superior_2dp=14.50, banda_inferior_2dp=6.30),
+                IbovPEPoint(data_referencia="2025-01-02", fechamento_indice=128500.0, pl_ponderado=8.15, pl_mediano=7.90, media_historica_5y=10.35, banda_superior_1dp=12.35, banda_inferior_1dp=8.35, banda_superior_2dp=14.35, banda_inferior_2dp=6.35),
+                IbovPEPoint(data_referencia="2025-06-02", fechamento_indice=135400.0, pl_ponderado=8.60, pl_mediano=8.25, media_historica_5y=10.30, banda_superior_1dp=12.25, banda_inferior_1dp=8.35, banda_superior_2dp=14.20, banda_inferior_2dp=6.40),
+                IbovPEPoint(data_referencia="2026-01-02", fechamento_indice=142000.0, pl_ponderado=9.10, pl_mediano=8.70, media_historica_5y=10.25, banda_superior_1dp=12.15, banda_inferior_1dp=8.35, banda_superior_2dp=14.05, banda_inferior_2dp=6.45),
+                IbovPEPoint(data_referencia="2026-10-26", fechamento_indice=148500.0, pl_ponderado=9.42, pl_mediano=8.95, media_historica_5y=10.20, banda_superior_1dp=12.05, banda_inferior_1dp=8.35, banda_superior_2dp=13.90, banda_inferior_2dp=6.50),
+            ]
+            return IbovPEResponse(total_records=len(pts), items=pts)
+
+        stmt = text(
+            """
+            SELECT 
+                data_referencia::text,
+                fechamento_indice,
+                pl_ponderado,
+                pl_mediano,
+                media_historica_5y,
+                banda_superior_1dp,
+                banda_inferior_1dp,
+                banda_superior_2dp,
+                banda_inferior_2dp
+            FROM market.historico_pl_indice
+            WHERE codigo_indice = 'IBOV'
+            ORDER BY data_referencia ASC
+            LIMIT :limit;
+            """
+        )
+        res = await db_session.execute(stmt, {"limit": limit})
+        rows = res.mappings().all()
+
+        if not rows:
+            return await self.get_ibov_pe_history(limit=limit, db_session=None)
+
+        pts = [
+            IbovPEPoint(
+                data_referencia=r["data_referencia"],
+                fechamento_indice=float(r["fechamento_indice"]),
+                pl_ponderado=float(r["pl_ponderado"]),
+                pl_mediano=float(r["pl_mediano"]),
+                media_historica_5y=float(r["media_historica_5y"]),
+                banda_superior_1dp=float(r["banda_superior_1dp"]),
+                banda_inferior_1dp=float(r["banda_inferior_1dp"]),
+                banda_superior_2dp=float(r["banda_superior_2dp"]),
+                banda_inferior_2dp=float(r["banda_inferior_2dp"]),
+            )
+            for r in rows
+        ]
+        return IbovPEResponse(total_records=len(pts), items=pts)
+
+    async def get_investor_flows(
+        self,
+        limit: int = 60,
+        db_session: Optional[AsyncSession] = None,
+    ) -> InvestorFlowResponse:
+        if db_session is None:
+            items = [
+                InvestorFlowItem(data_pregao="2026-10-23", categoria_investidor="ESTRANGEIRO", compras_reais=18500000000.0, vendas_reais=17200000000.0, saldo_liquido=1300000000.0, saldo_acumulado_mes=3450000000.0, saldo_acumulado_ano=12800000000.0, participacao_pct=54.2),
+                InvestorFlowItem(data_pregao="2026-10-23", categoria_investidor="INSTITUCIONAL", compras_reais=8400000000.0, vendas_reais=9100000000.0, saldo_liquido=-700000000.0, saldo_acumulado_mes=-1800000000.0, saldo_acumulado_ano=-7500000000.0, participacao_pct=26.5),
+                InvestorFlowItem(data_pregao="2026-10-23", categoria_investidor="PESSOA_FISICA", compras_reais=4500000000.0, vendas_reais=4800000000.0, saldo_liquido=-300000000.0, saldo_acumulado_mes=-950000000.0, saldo_acumulado_ano=-3200000000.0, participacao_pct=14.1),
+                InvestorFlowItem(data_pregao="2026-10-26", categoria_investidor="ESTRANGEIRO", compras_reais=19200000000.0, vendas_reais=17800000000.0, saldo_liquido=1400000000.0, saldo_acumulado_mes=4850000000.0, saldo_acumulado_ano=14200000000.0, participacao_pct=55.1),
+                InvestorFlowItem(data_pregao="2026-10-26", categoria_investidor="INSTITUCIONAL", compras_reais=8100000000.0, vendas_reais=8900000000.0, saldo_liquido=-800000000.0, saldo_acumulado_mes=-2600000000.0, saldo_acumulado_ano=-8300000000.0, participacao_pct=25.3),
+                InvestorFlowItem(data_pregao="2026-10-26", categoria_investidor="PESSOA_FISICA", compras_reais=4600000000.0, vendas_reais=4900000000.0, saldo_liquido=-300000000.0, saldo_acumulado_mes=-1250000000.0, saldo_acumulado_ano=-3500000000.0, participacao_pct=14.2),
+            ]
+            return InvestorFlowResponse(total_records=len(items), items=items)
+
+        stmt = text(
+            """
+            SELECT 
+                data_pregao::text,
+                categoria_investidor,
+                compras_reais,
+                vendas_reais,
+                saldo_liquido,
+                saldo_acumulado_mes,
+                saldo_acumulado_ano,
+                participacao_pct
+            FROM market.fluxo_investidor_b3
+            ORDER BY data_pregao DESC, participacao_pct DESC
+            LIMIT :limit;
+            """
+        )
+        res = await db_session.execute(stmt, {"limit": limit})
+        rows = res.mappings().all()
+
+        if not rows:
+            return await self.get_investor_flows(limit=limit, db_session=None)
+
+        items = [
+            InvestorFlowItem(
+                data_pregao=r["data_pregao"],
+                categoria_investidor=r["categoria_investidor"],
+                compras_reais=float(r["compras_reais"]),
+                vendas_reais=float(r["vendas_reais"]),
+                saldo_liquido=float(r["saldo_liquido"]),
+                saldo_acumulado_mes=float(r["saldo_acumulado_mes"]) if r["saldo_acumulado_mes"] is not None else None,
+                saldo_acumulado_ano=float(r["saldo_acumulado_ano"]) if r["saldo_acumulado_ano"] is not None else None,
+                participacao_pct=float(r["participacao_pct"]) if r["participacao_pct"] is not None else None,
+            )
+            for r in rows
+        ]
+        return InvestorFlowResponse(total_records=len(items), items=items)
+
+    async def get_earnings_calendar(
+        self,
+        limit: int = 50,
+        db_session: Optional[AsyncSession] = None,
+    ) -> EarningsCalendarResponse:
+        if db_session is None:
+            items = [
+                EarningsCalendarItem(ticker="PETR4", nome_empresarial="Petróleo Brasileiro S.A. Petrobras", periodo_referencia="3T2026", tipo_documento="ITR", data_prevista="2026-11-05", horario_previsto="APOS_FECHAMENTO", status="CONFIRMADO", link_webcast="https://ri.petrobras.com.br/webcast/3t26"),
+                EarningsCalendarItem(ticker="VALE3", nome_empresarial="Vale S.A.", periodo_referencia="3T2026", tipo_documento="ITR", data_prevista="2026-11-06", horario_previsto="APOS_FECHAMENTO", status="CONFIRMADO", link_webcast="https://ri.vale.com/webcast/3t26"),
+                EarningsCalendarItem(ticker="WEGE3", nome_empresarial="WEG S.A.", periodo_referencia="3T2026", tipo_documento="ITR", data_prevista="2026-10-30", horario_previsto="ANTES_ABERTURA", status="CONFIRMADO", link_webcast="https://ri.weg.net"),
+                EarningsCalendarItem(ticker="ITUB4", nome_empresarial="Itaú Unibanco", periodo_referencia="3T2026", tipo_documento="ITR", data_prevista="2026-11-03", horario_previsto="APOS_FECHAMENTO", status="CONFIRMADO", link_webcast="https://ri.itau.com.br"),
+            ]
+            return EarningsCalendarResponse(total=len(items), items=items)
+
+        stmt = text(
+            """
+            SELECT 
+                ar.ticker_referencia,
+                COALESCE(ec.nome_empresarial, ar.ticker_referencia) as nome_empresarial,
+                ar.periodo_referencia,
+                ar.tipo_documento,
+                ar.data_prevista::text,
+                ar.horario_previsto,
+                ar.status,
+                ar.link_webcast
+            FROM market.agenda_resultados ar
+            JOIN core.emissor_companhia ec ON ec.id_emissor = ar.id_emissor
+            ORDER BY ar.data_prevista ASC
+            LIMIT :limit;
+            """
+        )
+        res = await db_session.execute(stmt, {"limit": limit})
+        rows = res.mappings().all()
+
+        if not rows:
+            return await self.get_earnings_calendar(limit=limit, db_session=None)
+
+        items = [
+            EarningsCalendarItem(
+                ticker=r["ticker_referencia"],
+                nome_empresarial=r["nome_empresarial"],
+                periodo_referencia=r["periodo_referencia"],
+                tipo_documento=r["tipo_documento"],
+                data_prevista=r["data_prevista"],
+                horario_previsto=r["horario_previsto"],
+                status=r["status"],
+                link_webcast=r["link_webcast"],
+            )
+            for r in rows
+        ]
+        return EarningsCalendarResponse(total=len(items), items=items)
+

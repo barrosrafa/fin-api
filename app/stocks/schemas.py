@@ -105,3 +105,140 @@ class StockValuationResponse(BaseModel):
     revenue_by_segment: List[StockRevenueSegment] = Field(default_factory=list)
     revenue_by_geography: List[StockRevenueSegment] = Field(default_factory=list)
     consensus: Optional[StockConsensusEstimates] = None
+
+
+class StockDetailsResponse(BaseModel):
+    ticker: str
+    name: str
+    tipo: Optional[str] = None
+    classe_acao: Optional[str] = None
+    sector: Optional[str] = None
+    subsector: Optional[str] = None
+    segmento: Optional[str] = None
+    current_price: float
+    data_cotacao: Optional[str] = None
+    min_52_semanas: Optional[float] = None
+    max_52_semanas: Optional[float] = None
+    volume_medio_2m: Optional[float] = None
+    valor_mercado: Optional[float] = None
+    valor_firma: Optional[float] = None
+    numero_acoes: Optional[int] = None
+    is_financial_institution: bool = False
+
+
+class StockMultiplesResponse(BaseModel):
+    ticker: str
+    pl: Optional[float] = None
+    pvp: Optional[float] = None
+    pebit: Optional[float] = None
+    psr: Optional[float] = None
+    p_ativos: Optional[float] = None
+    p_cap_giro: Optional[float] = None
+    p_ativo_circ_liq: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    ev_ebitda: Optional[float] = None
+    ev_ebit: Optional[float] = None
+    margem_bruta: Optional[float] = None
+    margem_ebit: Optional[float] = None
+    margem_liquida: Optional[float] = None
+    roic: Optional[float] = None
+    roe: Optional[float] = None
+    liquidez_corrente: Optional[float] = None
+    div_bruta_patrimonio: Optional[float] = None
+    giro_ativos: Optional[float] = None
+    lpa: Optional[float] = None
+    vpa: Optional[float] = None
+
+
+class StockFinancialsResponse(BaseModel):
+    ticker: str
+    is_financial_institution: bool = False
+    data_balanco: Optional[str] = None
+    ativo_total: Optional[float] = None
+    disponibilidades: Optional[float] = None
+    ativo_circulante: Optional[float] = None
+    divida_bruta: Optional[float] = None
+    divida_liquida: Optional[float] = None
+    patrimonio_liquido: Optional[float] = None
+    receita_liquida_12m: Optional[float] = None
+    receita_liquida_3m: Optional[float] = None
+    ebit_12m: Optional[float] = None
+    ebit_3m: Optional[float] = None
+    lucro_liquido_12m: Optional[float] = None
+    lucro_liquido_3m: Optional[float] = None
+    # Banking / Financial Institutions specific
+    carteira_credito: Optional[float] = None
+    depositos: Optional[float] = None
+    resultado_intermediacao_12m: Optional[float] = None
+    resultado_intermediacao_3m: Optional[float] = None
+    receita_servicos_12m: Optional[float] = None
+    receita_servicos_3m: Optional[float] = None
+
+
+class StockCompleteDetailsResponse(BaseModel):
+    details: StockDetailsResponse
+    multiples: StockMultiplesResponse
+    financials: StockFinancialsResponse
+
+
+class FinancialStatementRow(BaseModel):
+    account_name: str
+    account_code: str
+    is_total: bool = False
+    indentation_level: int = 0
+    values_by_year: Dict[str, Optional[float]] = Field(default_factory=dict)
+
+
+class FinancialMatrixResponse(BaseModel):
+    ticker: str
+    company_name: str
+    period_type: str  # ANUAL ou TRIMESTRAL
+    years: List[str] = Field(default_factory=list)
+    dre: List[FinancialStatementRow] = Field(default_factory=list)
+    balance_sheet: List[FinancialStatementRow] = Field(default_factory=list)
+    cash_flow: List[FinancialStatementRow] = Field(default_factory=list)
+    margins_and_returns: List[FinancialStatementRow] = Field(default_factory=list)
+
+
+class ConsistencyScreenerItem(BaseModel):
+    ticker: str
+    company_name: str
+    sector: str
+    segment: str
+    consecutive_profitable_years: int
+    cagr_lucro_5y: Optional[float] = None
+    current_pe: Optional[float] = None
+    current_pb: Optional[float] = None
+    current_dy: float
+    current_roe: float
+
+
+class StockRankingItem(BaseModel):
+    rank: int
+    ticker: str
+    name: str
+    sector: str
+    price: float
+    dy: float
+    pl: Optional[float] = None
+    pvp: Optional[float] = None
+    roe: Optional[float] = None
+    roic: Optional[float] = None
+    margem_liquida: Optional[float] = None
+    ev_ebitda: Optional[float] = None
+    liquidez: float
+
+
+class DividendMatrixRow(BaseModel):
+    year: int
+    months: List[Optional[float]] = Field(default_factory=list)  # 12 meses (Jan a Dez)
+    annual_total: float
+    yield_on_cost_pct: float = 0.0
+
+
+class DividendMatrixResponse(BaseModel):
+    ticker: str
+    years: List[int] = Field(default_factory=list)
+    matrix: List[DividendMatrixRow] = Field(default_factory=list)
+
+

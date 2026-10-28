@@ -1,8 +1,14 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
-from fastapi import APIRouter, HTTPException, Query
+from typing import Annotated, Any, Dict, List, Literal, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_async_session
+from app.auth.models import User, UserRole
+from app.auth.contracts import AuthProvider
+from app.auth.dependencies import security_scheme, get_auth_provider
 from app.comparator.arbitration import ArbitrationEngine, SourceObservation
 from app.intelligence.falsifiable_phrase import (
     DecomposedAsset,
@@ -19,6 +25,30 @@ router = APIRouter(prefix="/api/v1", tags=["portfolio-graph"])
 _USER_OVERRIDES_STORE: Dict[str, List[UserOverride]] = {}
 _DISCREPANCIES_STORE: List[Dict[str, Any]] = []
 _INFERENCE_LOGS_STORE: List[Dict[str, Any]] = []
+
+
+async def verify_user_tenant_access(
+    user_id: str,
+    auth_header: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security_scheme)],
+    auth_provider: Annotated[AuthProvider, Depends(get_auth_provider)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+) -> Optional[User]:
+    if auth_header and auth_header.credentials:
+        claims = await auth_provider.validate_token(auth_header.credentials)
+        current_user = await auth_provider.get_or_create_user(claims, db_session=db)
+        if current_user.id != user_id and current_user.role != UserRole.ADMIN:
+            raise HTTPException(
+                status_code=403,
+                detail=f"BOLA/IDOR Violation: Access denied to user '{user_id}' resource."
+            )
+        return current_user
+    # Unauthenticated access only permitted for public test/demo namespaces
+    if user_id in {"demo", "test-user-1", "test-user-2", "guest"}:
+        return None
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required for user-specific portfolio resource."
+    )
 
 
 class UserOverrideCreate(BaseModel):
@@ -93,7 +123,11 @@ DEFAULT_EDGES = {
 
 
 @router.post("/portfolio/{user_id}/overrides")
-def add_user_override(user_id: str, payload: UserOverrideCreate):
+async def add_user_override(
+    user_id: str,
+    payload: UserOverrideCreate,
+    _tenant_check: Annotated[Optional[User], Depends(verify_user_tenant_access)] = None,
+):
     override = UserOverride(
         source_asset_id=payload.source_asset_id,
         target_entity_name=payload.target_entity_name,
@@ -113,17 +147,22 @@ def add_user_override(user_id: str, payload: UserOverrideCreate):
 
 
 @router.post("/portfolio/{user_id}/discrepancies")
-def report_discrepancy(user_id: str, payload: DiscrepancyReportCreate):
+async def report_discrepancy(
+    user_id: str,
+    payload: DiscrepancyReportCreate,
+    _tenant_check: Annotated[Optional[User], Depends(verify_user_tenant_access)] = None,
+):
     entry = {"user_id": user_id, "timestamp": datetime.now(timezone.utc).isoformat(), **payload.model_dump()}
     _DISCREPANCIES_STORE.append(entry)
     return {"status": "reported", "discrepancy": entry}
 
 
 @router.get("/portfolio/{user_id}/debtor-concentration")
-def get_debtor_concentration(
+async def get_debtor_concentration(
     user_id: str,
     as_of_valid_time: Optional[datetime] = Query(None, description="Valid historical timestamp in real world"),
     as_of_transaction_time: Optional[datetime] = Query(None, description="Transaction historical timestamp in system"),
+    _tenant_check: Annotated[Optional[User], Depends(verify_user_tenant_access)] = None,
 ):
     overrides = _USER_OVERRIDES_STORE.get(user_id, [])
     positions = [
@@ -143,7 +182,10 @@ def get_debtor_concentration(
 
 
 @router.get("/portfolio/{user_id}/falsifiable-phrase")
-def get_falsifiable_phrase(user_id: str):
+async def get_falsifiable_phrase(
+    user_id: str,
+    _tenant_check: Annotated[Optional[User], Depends(verify_user_tenant_access)] = None,
+):
     engine = FalsifiablePhraseEngine()
     ctx = PhraseContext(
         macro_class="crédito imobiliário de papel",

@@ -19,6 +19,9 @@ from app.market.schemas import (
     BenchmarkItem,
     AssetSummaryResponse,
     DividendCalendarItem,
+    IbovPEResponse,
+    InvestorFlowResponse,
+    EarningsCalendarResponse,
 )
 
 router = APIRouter(prefix="/market", tags=["Market"])
@@ -67,6 +70,36 @@ async def get_dividend_calendar(
 ):
     service = MarketService()
     return await service.get_dividend_calendar(limit=limit, db_session=db)
+
+
+@router.get("/ibov-pe-history", response_model=IbovPEResponse)
+async def get_ibov_pe_history(
+    limit: int = 60,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Série histórica do P/L Ponderado do Ibovespa com média de 5 anos e bandas de +-1 e +-2 desvios padrão."""
+    service = MarketService()
+    return await service.get_ibov_pe_history(limit=limit, db_session=db)
+
+
+@router.get("/investor-flows", response_model=InvestorFlowResponse)
+async def get_investor_flows(
+    limit: int = 60,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Participação e fluxo líquido de investidores na B3 (Estrangeiro, Institucional, Pessoa Física, Instituições Financeiras)."""
+    service = MarketService()
+    return await service.get_investor_flows(limit=limit, db_session=db)
+
+
+@router.get("/earnings-calendar", response_model=EarningsCalendarResponse)
+async def get_earnings_calendar(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Agenda de divulgação de resultados trimestrais (DFP/ITR) e webcasts com investidores."""
+    service = MarketService()
+    return await service.get_earnings_calendar(limit=limit, db_session=db)
 
 
 @router.get("/{ticker}", response_model=QuoteResponse)
