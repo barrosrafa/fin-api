@@ -37,70 +37,50 @@ async def get_portfolio_service(
 
 
 @router.get("/demo/positions", response_model=List[DemoPositionItem])
-async def get_demo_positions(
-    db: Annotated[AsyncSession, Depends(get_async_session)],
-):
-    stmt = text(
-        """
-        SELECT 
-            a.ticker,
-            CASE a.tipo_ativo::text 
-                WHEN 'ACAO' THEN 'AÇÃO' 
-                WHEN 'FII' THEN 'FII' 
-                WHEN 'ETF' THEN 'ETF' 
-                WHEN 'TESOURO' THEN 'RENDA FIXA'
-                ELSE a.tipo_ativo::text 
-            END as tipo,
-            pc.quantidade_total as shares,
-            COALESCE(cd.preco_fechamento, pc.preco_medio_ponderado, 10.0) as price,
-            COALESCE(inf.dividend_yield, df.dividend_yield, 8.5) as dy
-        FROM core.posicao_custodia pc
-        JOIN core.ativo a ON a.id_ativo = pc.id_ativo
-        LEFT JOIN LATERAL (
-            SELECT preco_fechamento 
-            FROM market.cotacao_diaria 
-            WHERE id_ativo = a.id_ativo 
-            ORDER BY data_pregao DESC LIMIT 1
-        ) cd ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT dividend_yield 
-            FROM analytics.indicador_fundamentalista 
-            WHERE id_ativo = a.id_ativo 
-            ORDER BY data_referencia DESC LIMIT 1
-        ) inf ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT dividend_yield 
-            FROM asset_details.detalhe_fii 
-            WHERE id_ativo = a.id_ativo 
-            LIMIT 1
-        ) df ON TRUE
-        ORDER BY (pc.quantidade_total * COALESCE(cd.preco_fechamento, 10.0)) DESC;
-        """
-    )
-    res = await db.execute(stmt)
-    rows = res.mappings().all()
-
-    items = []
-    for r in rows:
-        shares = float(r["shares"])
-        price = float(r["price"])
-        total = round(shares * price, 2)
-        dy = float(r["dy"])
-        monthly = round((total * (dy / 100.0)) / 12.0, 2) if dy > 0 else 0.0
-
-        items.append(
-            DemoPositionItem(
-                ticker=r["ticker"],
-                type=r["tipo"],
-                shares=shares,
-                price=price,
-                total=total,
-                yieldAnn=dy,
-                monthlyEstimate=monthly,
-            )
-        )
-
-    return items
+async def get_demo_positions():
+    """
+    Retorna uma carteira demonstrativa puramente estática e mockada para novos visitantes.
+    NUNCA acessa tabelas privadas de custódia (core.posicao_custodia) do banco de produção.
+    """
+    demo_items = [
+        DemoPositionItem(
+            ticker="ITUB4",
+            type="AÇÃO",
+            shares=200.0,
+            price=34.50,
+            total=6900.0,
+            yieldAnn=7.2,
+            monthlyEstimate=41.40,
+        ),
+        DemoPositionItem(
+            ticker="HGLG11",
+            type="FII",
+            shares=50.0,
+            price=162.80,
+            total=8140.0,
+            yieldAnn=8.9,
+            monthlyEstimate=60.37,
+        ),
+        DemoPositionItem(
+            ticker="IVVB11",
+            type="ETF",
+            shares=30.0,
+            price=295.10,
+            total=8853.0,
+            yieldAnn=0.0,
+            monthlyEstimate=0.0,
+        ),
+        DemoPositionItem(
+            ticker="B3SA3",
+            type="AÇÃO",
+            shares=300.0,
+            price=12.40,
+            total=3720.0,
+            yieldAnn=6.5,
+            monthlyEstimate=20.15,
+        ),
+    ]
+    return demo_items
 
 
 @router.get("/wallets", response_model=List[WalletResponse])

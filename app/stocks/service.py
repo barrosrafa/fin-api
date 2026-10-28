@@ -750,20 +750,12 @@ class StockService:
         rows = res.mappings().all()
 
         if not rows:
-            # Fallback construindo a partir de dados existentes
-            years = ["2021", "2022", "2023", "2024", "2025"]
             return FinancialMatrixResponse(
                 ticker=t,
                 company_name=f"Companhia {t}",
                 period_type=period_type,
-                years=years,
-                dre=[
-                    FinancialStatementRow(account_name="Receita Líquida", account_code="3.01", values_by_year={y: 100000.0 * (1 + 0.1 * i) for i, y in enumerate(years)}),
-                    FinancialStatementRow(account_name="Custos (CPV)", account_code="3.02", values_by_year={y: -52000.0 * (1 + 0.08 * i) for i, y in enumerate(years)}),
-                    FinancialStatementRow(account_name="Lucro Bruto", account_code="3.03", is_total=True, values_by_year={y: 48000.0 * (1 + 0.12 * i) for i, y in enumerate(years)}),
-                    FinancialStatementRow(account_name="EBITDA / LAJIDA", account_code="3.05", is_total=True, values_by_year={y: 38000.0 * (1 + 0.11 * i) for i, y in enumerate(years)}),
-                    FinancialStatementRow(account_name="Lucro Líquido", account_code="3.11", is_total=True, values_by_year={y: 19000.0 * (1 + 0.13 * i) for i, y in enumerate(years)}),
-                ],
+                years=[],
+                dre=[],
             )
 
         company_name = rows[0]["nome_empresa"]

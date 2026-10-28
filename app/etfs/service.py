@@ -38,7 +38,9 @@ class ETFService:
                     ed.taxa_administracao_primaria,
                     ed.taxa_administracao_secundaria,
                     ed.politica_dividendos,
-                    ed.limite_aluguel_pl_pct
+                    ed.limite_aluguel_pl_pct,
+                    ed.patrimonio,
+                    ed.cotas
                 FROM core.ativo a
                 LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
                 LEFT JOIN asset_details.etf_detalhe ed ON ed.id_ativo = a.id_ativo
@@ -56,7 +58,11 @@ class ETFService:
             row = res.mappings().first()
             if row:
                 current_price = float(row["preco"])
-                nav_per_share = round(current_price * 0.9985, 2)
+                if row["patrimonio"] and row["cotas"] and float(row["cotas"]) > 0:
+                    nav_per_share = round(float(row["patrimonio"]) / float(row["cotas"]), 2)
+                else:
+                    nav_per_share = None
+
                 if row["indice_referencia"]:
                     benchmark_index = row["indice_referencia"]
                 if row["gestor"]:
@@ -72,12 +78,17 @@ class ETFService:
                 if row["limite_aluguel_pl_pct"] is not None:
                     max_lending_limit_pct = float(row["limite_aluguel_pl_pct"])
 
-                # Query open holdings if populated
+                # Query open holdings filtered strictly by latest reference date snapshot
                 h_stmt = text(
                     """
                     SELECT codigo_ativo, descricao_ativo, setor_economico, peso_percentual
                     FROM market.etf_composicao_carteira
                     WHERE id_ativo_fundo = :id_ativo
+                      AND data_referencia = (
+                          SELECT MAX(data_referencia)
+                          FROM market.etf_composicao_carteira
+                          WHERE id_ativo_fundo = :id_ativo
+                      )
                     ORDER BY peso_percentual DESC;
                     """
                 )
@@ -94,42 +105,34 @@ class ETFService:
                             )
                         )
 
-        spread_pct = round(((current_price - nav_per_share) / nav_per_share) * 100, 3)
+        if nav_per_share is not None and nav_per_share > 0:
+            spread_pct = round(((current_price - nav_per_share) / nav_per_share) * 100, 3)
+        else:
+            spread_pct = None
 
         if db_holdings:
             holdings = db_holdings
-        elif t == "IVVB11":
+        elif db_session is None and t == "IVVB11":
             holdings = [
                 ETFUnderlyingAsset(ticker="MSFT", name="Microsoft Corporation", weight_pct=6.8, sector="Tecnologia da Informação"),
                 ETFUnderlyingAsset(ticker="AAPL", name="Apple Inc.", weight_pct=6.5, sector="Tecnologia da Informação"),
                 ETFUnderlyingAsset(ticker="NVDA", name="NVIDIA Corporation", weight_pct=6.2, sector="Tecnologia da Informação"),
                 ETFUnderlyingAsset(ticker="AMZN", name="Amazon.com Inc.", weight_pct=3.6, sector="Consumo Discricionário"),
                 ETFUnderlyingAsset(ticker="GOOGL", name="Alphabet Inc. Class A", weight_pct=2.3, sector="Serviços de Comunicação"),
-                ETFUnderlyingAsset(ticker="META", name="Meta Platforms Inc.", weight_pct=2.2, sector="Serviços de Comunicação"),
-                ETFUnderlyingAsset(ticker="GOOG", name="Alphabet Inc. Class C", weight_pct=2.0, sector="Serviços de Comunicação"),
-                ETFUnderlyingAsset(ticker="BRK.B", name="Berkshire Hathaway Inc.", weight_pct=1.7, sector="Financeiro"),
-                ETFUnderlyingAsset(ticker="AVGO", name="Broadcom Inc.", weight_pct=1.6, sector="Tecnologia da Informação"),
-                ETFUnderlyingAsset(ticker="LLY", name="Eli Lilly and Company", weight_pct=1.5, sector="Saúde"),
             ]
-        else:
+        elif db_session is None and t == "BOVA11":
             holdings = [
                 ETFUnderlyingAsset(ticker="VALE3", name="Vale S.A.", weight_pct=13.2, sector="Materiais Básicos"),
                 ETFUnderlyingAsset(ticker="PETR4", name="Petrobras PN", weight_pct=11.5, sector="Petróleo e Gás"),
                 ETFUnderlyingAsset(ticker="ITUB4", name="Itaú Unibanco PN", weight_pct=8.4, sector="Financeiro"),
                 ETFUnderlyingAsset(ticker="PETR3", name="Petrobras ON", weight_pct=6.1, sector="Petróleo e Gás"),
                 ETFUnderlyingAsset(ticker="BBDC4", name="Banco Bradesco PN", weight_pct=4.5, sector="Financeiro"),
-                ETFUnderlyingAsset(ticker="ELET3", name="Eletrobras ON", weight_pct=3.8, sector="Utilidade Pública"),
-                ETFUnderlyingAsset(ticker="B3SA3", name="B3 S.A.", weight_pct=3.5, sector="Financeiro"),
-                ETFUnderlyingAsset(ticker="WEGE3", name="WEG S.A.", weight_pct=3.2, sector="Bens Industriais"),
             ]
+        else:
+            # No fake holdings for arbitrary ETFs
+            holdings = []
 
-        flows = [
-            ETFFlowPoint(date="2026-10-20", flow_millions=45.2, shares_count=350000),
-            ETFFlowPoint(date="2026-10-21", flow_millions=-12.5, shares_count=-97000),
-            ETFFlowPoint(date="2026-10-22", flow_millions=88.4, shares_count=688000),
-            ETFFlowPoint(date="2026-10-23", flow_millions=24.1, shares_count=187000),
-            ETFFlowPoint(date="2026-10-24", flow_millions=61.0, shares_count=475000),
-        ]
+        flows = []
 
         return ETFDetailResponse(
             ticker=t,
@@ -137,8 +140,8 @@ class ETFService:
             benchmark_index=benchmark_index,
             provider=provider,
             current_price=round(current_price, 2),
-            nav_per_share=round(nav_per_share, 2),
-            nav_spread_pct=spread_pct,
+            nav_per_share=round(nav_per_share, 2) if nav_per_share is not None else None,
+            nav_spread_pct=round(spread_pct, 2) if spread_pct is not None else None,
             ter_pct=ter_pct,
             primary_fee_pct=primary_fee_pct,
             secondary_fee_pct=secondary_fee_pct,

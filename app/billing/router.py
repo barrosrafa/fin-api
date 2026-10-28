@@ -1,5 +1,6 @@
+import secrets
 from typing import Annotated, Dict, Any
-from fastapi import APIRouter, Depends, Request, Header, status
+from fastapi import APIRouter, Depends, Request, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
@@ -62,11 +63,16 @@ async def handle_payment_webhook(
     db: Annotated[AsyncSession, Depends(get_async_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
-    # Verify Asaas Webhook Token (Header: asaas-access-token)
-    if gateway_provider == "asaas":
-        token = request.headers.get("asaas-access-token")
-        if not token or token != settings.ASAAS_WEBHOOK_SECRET:
-            raise UnauthorizedException("Invalid or missing asaas-access-token webhook header")
+    if gateway_provider != "asaas":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Provedor de pagamento não suportado: '{gateway_provider}'"
+        )
+
+    # Strictly verify Asaas Webhook Token (Header: asaas-access-token)
+    token = request.headers.get("asaas-access-token")
+    if not token or not settings.ASAAS_WEBHOOK_SECRET or not secrets.compare_digest(token, settings.ASAAS_WEBHOOK_SECRET):
+        raise UnauthorizedException("Assinatura do webhook inválida ou ausente (asaas-access-token)")
 
     body = await request.body()
     headers = dict(request.headers)
