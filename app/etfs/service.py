@@ -1,12 +1,91 @@
+from datetime import datetime
 from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.etfs.schemas import ETFDetailResponse, ETFUnderlyingAsset, ETFFlowPoint
+from app.etfs.schemas import (
+    ETFDetailResponse,
+    ETFUnderlyingAsset,
+    ETFFlowPoint,
+    ETFDrawdownResponse,
+)
 
 
 class ETFService:
     def __init__(self, redis_client=None):
         self.redis = redis_client
+
+    async def get_etf_drawdown(
+        self,
+        ticker: str,
+        db_session: Optional[AsyncSession] = None,
+    ) -> ETFDrawdownResponse:
+        t = ticker.upper()
+        if db_session is None:
+            return ETFDrawdownResponse(
+                ticker=t,
+                max_drawdown_pct=0.0,
+                valley_date=None,
+                recovery_days=None,
+                drawdown_curve=[],
+            )
+
+        stmt = text("""
+            SELECT cd.data_pregao, cd.preco_fechamento
+            FROM market.cotacao_diaria cd
+            JOIN core.ativo a ON a.id_ativo = cd.id_ativo
+            WHERE a.ticker = :ticker
+            ORDER BY cd.data_pregao ASC;
+        """)
+        res = await db_session.execute(stmt, {"ticker": t})
+        rows = res.mappings().all()
+
+        if not rows:
+            return ETFDrawdownResponse(
+                ticker=t,
+                max_drawdown_pct=0.0,
+                valley_date=None,
+                recovery_days=None,
+                drawdown_curve=[],
+            )
+
+        peak = 0.0
+        max_dd = 0.0
+        valley_date = None
+        valley_idx = -1
+        curve = []
+
+        for idx, r in enumerate(rows):
+            p = float(r["preco_fechamento"])
+            if p > peak:
+                peak = p
+            dd = ((p - peak) / peak) * 100.0 if peak > 0 else 0.0
+            dt = r["data_pregao"]
+            ts = int(datetime(dt.year, dt.month, dt.day).timestamp() * 1000)
+            curve.append([ts, round(dd, 2)])
+            if dd < max_dd:
+                max_dd = dd
+                valley_date = str(dt)
+                valley_idx = idx
+
+        recovery_days = None
+        if valley_idx >= 0:
+            valley_peak = 0.0
+            for i in range(valley_idx + 1):
+                valley_peak = max(valley_peak, float(rows[i]["preco_fechamento"]))
+            for j in range(valley_idx + 1, len(rows)):
+                if float(rows[j]["preco_fechamento"]) >= valley_peak:
+                    dt_valley = rows[valley_idx]["data_pregao"]
+                    dt_rec = rows[j]["data_pregao"]
+                    recovery_days = (dt_rec - dt_valley).days
+                    break
+
+        return ETFDrawdownResponse(
+            ticker=t,
+            max_drawdown_pct=round(max_dd, 2),
+            valley_date=valley_date,
+            recovery_days=recovery_days,
+            drawdown_curve=curve,
+        )
 
     async def get_etf_detail(
         self,
@@ -18,6 +97,7 @@ class ETFService:
         nav_per_share = 128.25 if t == "BOVA11" else 285.10
         provider = "BlackRock Brasil"
         benchmark_index = "IBOVESPA" if t == "BOVA11" else "S&P 500 BRL"
+        name = f"iShares {t} Fundo de Índice"
         ter_pct = 0.30
         primary_fee_pct = 0.30
         secondary_fee_pct = 0.00
@@ -57,6 +137,8 @@ class ETFService:
             res = await db_session.execute(stmt, {"ticker": t})
             row = res.mappings().first()
             if row:
+                if row["nome"]:
+                    name = row["nome"]
                 current_price = float(row["preco"])
                 if row["patrimonio"] and row["cotas"] and float(row["cotas"]) > 0:
                     nav_per_share = round(float(row["patrimonio"]) / float(row["cotas"]), 2)
@@ -71,8 +153,12 @@ class ETFService:
                     ter_pct = float(row["taxa_administracao_total"])
                 if row["taxa_administracao_primaria"] is not None:
                     primary_fee_pct = float(row["taxa_administracao_primaria"])
+                else:
+                    primary_fee_pct = ter_pct
                 if row["taxa_administracao_secundaria"] is not None:
                     secondary_fee_pct = float(row["taxa_administracao_secundaria"])
+                else:
+                    secondary_fee_pct = max(0.0, round(ter_pct - primary_fee_pct, 4))
                 if row["politica_dividendos"]:
                     policy = row["politica_dividendos"]
                 if row["limite_aluguel_pl_pct"] is not None:
@@ -129,14 +215,14 @@ class ETFService:
                 ETFUnderlyingAsset(ticker="BBDC4", name="Banco Bradesco PN", weight_pct=4.5, sector="Financeiro"),
             ]
         else:
-            # No fake holdings for arbitrary ETFs
             holdings = []
 
         flows = []
+        drawdown_data = await self.get_etf_drawdown(t, db_session)
 
         return ETFDetailResponse(
             ticker=t,
-            name=f"iShares {t} Fundo de Índice",
+            name=name,
             benchmark_index=benchmark_index,
             provider=provider,
             current_price=round(current_price, 2),
@@ -150,4 +236,5 @@ class ETFService:
             max_lending_limit_pct=max_lending_limit_pct,
             underlying_holdings=holdings,
             flow_history_30d=flows,
+            drawdown=drawdown_data,
         )

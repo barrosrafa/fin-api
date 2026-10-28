@@ -20,6 +20,8 @@ from app.market.schemas import (
     InvestorFlowResponse,
     EarningsCalendarItem,
     EarningsCalendarResponse,
+    DailyQuoteItem,
+    QuoteHistoryResponse,
 )
 from app.core.logging import logger
 from app.worker.settings import QUEUE_DEFAULT
@@ -119,17 +121,96 @@ class MarketService:
         self,
         asset_type: Optional[str] = None,
         limit: int = 50,
+        offset: int = 0,
+        search: Optional[str] = None,
+        sector: Optional[str] = None,
+        subsector: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        sort_dir: Optional[str] = "desc",
         db_session: Optional[AsyncSession] = None,
     ) -> List[AssetSummaryResponse]:
-        """Returns assets from core.ativo, cotacao_diaria, and analytics."""
-        if db_session is None:
-            return []
+        items, _ = await self.get_assets_with_count(
+            asset_type=asset_type,
+            limit=limit,
+            offset=offset,
+            search=search,
+            sector=sector,
+            subsector=subsector,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            db_session=db_session,
+        )
+        return items
 
-        type_filter = ""
-        params: Dict[str, Any] = {"limit": limit}
+    async def get_assets_with_count(
+        self,
+        asset_type: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+        search: Optional[str] = None,
+        sector: Optional[str] = None,
+        subsector: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        sort_dir: Optional[str] = "desc",
+        db_session: Optional[AsyncSession] = None,
+    ) -> tuple[List[AssetSummaryResponse], int]:
+        """Returns assets from core.ativo, cotacao_diaria, and analytics with pagination and search."""
+        if db_session is None:
+            return [], 0
+
+        where_clauses = ["a.tipo_ativo::text IN ('ACAO', 'FII', 'ETF')"]
+        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+
         if asset_type and asset_type != "TODOS":
-            type_filter = "AND a.tipo_ativo::text = :tipo_ativo"
+            where_clauses.append("a.tipo_ativo::text = :tipo_ativo")
             params["tipo_ativo"] = asset_type
+
+        if search and search.strip():
+            where_clauses.append("(a.ticker ILIKE :search OR ec.nome_empresarial ILIKE :search)")
+            params["search"] = f"%{search.strip()}%"
+
+        if sector and sector != "TODOS":
+            where_clauses.append(
+                "(ec.setor ILIKE :sector OR (ec.setor IS NULL AND :sector = 'Imobiliário' AND a.tipo_ativo::text = 'FII') OR (ec.setor IS NULL AND :sector = 'Índice Global' AND a.tipo_ativo::text = 'ETF'))"
+            )
+            params["sector"] = f"%{sector.strip()}%"
+
+        if subsector and subsector != "TODOS":
+            where_clauses.append(
+                "(ec.subsetor ILIKE :subsector OR (ec.subsetor IS NULL AND :subsector = 'Tijolo / Papel' AND a.tipo_ativo::text = 'FII') OR (ec.subsetor IS NULL AND :subsector = 'Renda Variável' AND a.tipo_ativo::text = 'ETF'))"
+            )
+            params["subsector"] = f"%{subsector.strip()}%"
+
+        where_sql = " AND ".join(where_clauses)
+
+        dir_sql = "ASC" if sort_dir and sort_dir.lower() == "asc" else "DESC"
+        if sort_by == "dy":
+            order_sql = f"COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) {dir_sql} NULLS LAST, a.ticker ASC"
+        elif sort_by == "pvp":
+            order_sql = f"COALESCE(inf.pvp, df.pvp, 999.0) {dir_sql} NULLS LAST, a.ticker ASC"
+        elif sort_by in ("preco", "currentPrice"):
+            order_sql = f"COALESCE(cd.preco_fechamento, 0.0) {dir_sql} NULLS LAST, a.ticker ASC"
+        elif sort_by == "change24h":
+            order_sql = f"COALESCE(cd.variacao_percentual, 0.0) {dir_sql} NULLS LAST, a.ticker ASC"
+        elif sort_by == "ticker":
+            order_sql = f"a.ticker {dir_sql}"
+        elif sort_by == "name":
+            order_sql = f"COALESCE(ec.nome_empresarial, a.ticker) {dir_sql}"
+        else:
+            order_sql = "COALESCE(cd.preco_fechamento, 0) * COALESCE(a.liquidez, 1) DESC, a.ticker ASC"
+
+        count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+        count_stmt = text(
+            f"""
+            SELECT count(*)
+            FROM core.ativo a
+            LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN asset_details.etf_detalhe ed ON ed.id_ativo = a.id_ativo
+            WHERE {where_sql};
+            """
+        )
+        total_res = await db_session.execute(count_stmt, count_params)
+        total_count = total_res.scalar() or 0
 
         stmt = text(
             f"""
@@ -185,10 +266,9 @@ class MarketService:
                 WHERE id_ativo = a.id_ativo 
                 LIMIT 1
             ) df ON TRUE
-            WHERE a.tipo_ativo::text IN ('ACAO', 'FII', 'ETF')
-            {type_filter}
-            ORDER BY COALESCE(cd.preco_fechamento, 0) * COALESCE(a.liquidez, 1) DESC
-            LIMIT :limit;
+            WHERE {where_sql}
+            ORDER BY {order_sql}
+            LIMIT :limit OFFSET :offset;
             """
         )
         res = await db_session.execute(stmt, params)
@@ -246,26 +326,168 @@ class MarketService:
                     badge=badge,
                 )
             )
-        return results
+        return results, total_count
+
+    async def get_sectors(
+        self,
+        asset_type: Optional[str] = None,
+        db_session: Optional[AsyncSession] = None,
+    ) -> List[str]:
+        """Returns distinct sectors or subsectors for given asset type."""
+        if db_session is None:
+            return ["TODOS"]
+
+        if asset_type == "FII":
+            stmt = text(
+                """
+                SELECT DISTINCT 
+                    COALESCE(ec.subsetor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Tijolo / Papel' ELSE 'Geral' END) as val
+                FROM core.ativo a
+                LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                WHERE a.tipo_ativo::text = 'FII'
+                ORDER BY 1;
+                """
+            )
+        elif asset_type == "ACAO":
+            stmt = text(
+                """
+                SELECT DISTINCT 
+                    COALESCE(ec.setor, 'Outros') as val
+                FROM core.ativo a
+                LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                WHERE a.tipo_ativo::text = 'ACAO'
+                ORDER BY 1;
+                """
+            )
+        else:
+            stmt = text(
+                """
+                SELECT DISTINCT 
+                    COALESCE(ec.setor, 'Geral') as val
+                FROM core.ativo a
+                LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                ORDER BY 1;
+                """
+            )
+
+        res = await db_session.execute(stmt)
+        values = [r[0] for r in res.fetchall() if r[0]]
+        return ["TODOS"] + values
+
+    async def get_highlights(
+        self,
+        asset_type: str = "FII",
+        db_session: Optional[AsyncSession] = None,
+    ) -> Dict[str, Any]:
+        """Returns top highlights (highest DY, lowest P/VP, etc.) across the full database."""
+        if db_session is None:
+            return {}
+
+        if asset_type == "FII":
+            stmt = text(
+                """
+                SELECT 
+                    (
+                        SELECT json_build_object('ticker', a.ticker, 'dividendYield', COALESCE(df.dividend_yield, 0.0), 'name', COALESCE(ec.nome_empresarial, a.ticker))
+                        FROM core.ativo a
+                        JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
+                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                        WHERE a.tipo_ativo::text = 'FII' AND df.dividend_yield IS NOT NULL AND df.dividend_yield <= 40.0
+                        ORDER BY df.dividend_yield DESC LIMIT 1
+                    ) as highest_dy,
+                    (
+                        SELECT json_build_object('ticker', a.ticker, 'pvp', df.pvp, 'name', COALESCE(ec.nome_empresarial, a.ticker))
+                        FROM core.ativo a
+                        JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
+                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                        WHERE a.tipo_ativo::text = 'FII' AND df.pvp IS NOT NULL AND df.pvp > 0.05
+                        ORDER BY df.pvp ASC LIMIT 1
+                    ) as lowest_pvp;
+                """
+            )
+        else:
+            stmt = text(
+                """
+                SELECT 
+                    (
+                        SELECT json_build_object('ticker', a.ticker, 'dividendYield', COALESCE(inf.dividend_yield, 0.0), 'name', COALESCE(ec.nome_empresarial, a.ticker))
+                        FROM core.ativo a
+                        JOIN analytics.indicador_fundamentalista inf ON inf.id_ativo = a.id_ativo
+                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                        WHERE a.tipo_ativo::text = 'ACAO' AND inf.dividend_yield IS NOT NULL AND inf.dividend_yield <= 40.0
+                        ORDER BY inf.dividend_yield DESC LIMIT 1
+                    ) as highest_dy,
+                    (
+                        SELECT json_build_object('ticker', a.ticker, 'pvp', inf.pvp, 'name', COALESCE(ec.nome_empresarial, a.ticker))
+                        FROM core.ativo a
+                        JOIN analytics.indicador_fundamentalista inf ON inf.id_ativo = a.id_ativo
+                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                        WHERE a.tipo_ativo::text = 'ACAO' AND inf.pvp IS NOT NULL AND inf.pvp > 0.05
+                        ORDER BY inf.pvp ASC LIMIT 1
+                    ) as lowest_pvp;
+                """
+            )
+        res = await db_session.execute(stmt)
+        row = res.mappings().one_or_none()
+        if not row:
+            return {}
+        return dict(row)
 
     async def get_dividend_calendar(
         self,
-        limit: int = 10,
+        limit: int = 50,
+        offset: int = 0,
+        ticker: Optional[str] = None,
+        status: Optional[str] = None,
+        event_type: Optional[str] = None,
         db_session: Optional[AsyncSession] = None,
-    ) -> List[DividendCalendarItem]:
-        """Returns confirmed dividends from market.provento."""
+    ) -> tuple[List[DividendCalendarItem], int]:
+        """Returns confirmed and scheduled dividends from market.provento with pagination and filtering."""
         if db_session is None:
-            return []
+            return [], 0
+
+        where_clauses = ["p.data_com IS NOT NULL"]
+        params: dict = {"limit": limit, "offset": offset}
+
+        if ticker and ticker.strip():
+            where_clauses.append("a.ticker = :ticker")
+            params["ticker"] = ticker.strip().upper()
+
+        if event_type and event_type.upper() != "ALL":
+            where_clauses.append("p.tipo_provento::text = :event_type")
+            params["event_type"] = event_type.upper()
+
+        if status and status.upper() == "FUTURO":
+            where_clauses.append("p.data_pagamento >= CURRENT_DATE")
+        elif status and status.upper() == "PAGO":
+            where_clauses.append("p.data_pagamento < CURRENT_DATE")
+
+        where_sql = " AND ".join(where_clauses)
+
+        count_stmt = text(
+            f"""
+            SELECT count(*)
+            FROM market.provento p
+            JOIN core.ativo a ON a.id_ativo = p.id_ativo
+            WHERE {where_sql};
+            """
+        )
+        count_res = await db_session.execute(
+            count_stmt, {k: v for k, v in params.items() if k not in ("limit", "offset")}
+        )
+        total = count_res.scalar_one_or_none() or 0
 
         stmt = text(
-            """
+            f"""
             SELECT 
                 p.id_provento,
                 a.ticker,
                 p.tipo_provento::text as tipo,
                 COALESCE(p.mes_referencia, to_char(p.data_com, 'MM/YYYY')) as mes_ref,
                 to_char(p.data_com, 'YYYY-MM-DD') as dt_com,
+                to_char(p.data_ex, 'YYYY-MM-DD') as dt_ex,
                 to_char(p.data_pagamento, 'YYYY-MM-DD') as dt_pag,
+                CASE WHEN p.data_pagamento >= CURRENT_DATE THEN 'FUTURO' ELSE 'PAGO' END as status_prov,
                 p.valor_por_acao,
                 cd.preco_fechamento as cotacao
             FROM market.provento p
@@ -276,11 +498,14 @@ class MarketService:
                 WHERE id_ativo = a.id_ativo 
                 ORDER BY data_pregao DESC LIMIT 1
             ) cd ON TRUE
-            ORDER BY p.data_com DESC
-            LIMIT :limit;
+            WHERE {where_sql}
+            ORDER BY 
+                CASE WHEN p.data_pagamento >= CURRENT_DATE THEN 0 ELSE 1 END,
+                p.data_com DESC
+            LIMIT :limit OFFSET :offset;
             """
         )
-        res = await db_session.execute(stmt, {"limit": limit})
+        res = await db_session.execute(stmt, params)
         rows = res.mappings().all()
 
         items = []
@@ -295,12 +520,15 @@ class MarketService:
                     type=r["tipo"],
                     referenceMonth=r["mes_ref"],
                     dateCom=r["dt_com"],
+                    dateEx=r["dt_ex"],
                     paymentDate=r["dt_pag"],
                     valuePerShare=val,
                     yieldOnCostPct=yield_pct,
+                    status=r["status_prov"],
+                    sourceUrl="https://www.b3.com.br/pt_br/produtos-e-servicos/negociacao/renda-variavel/empresas-listadas.htm",
                 )
             )
-        return items
+        return items, total
 
     async def get_quote(
         self,
@@ -605,4 +833,100 @@ class MarketService:
             for r in rows
         ]
         return EarningsCalendarResponse(total=len(items), items=items)
+
+    async def get_quote_history(
+        self,
+        ticker: str,
+        timeframe: str = "1Y",
+        adjusted: bool = True,
+        limit: int = 500,
+        offset: int = 0,
+        db_session: Optional[AsyncSession] = None,
+    ) -> QuoteHistoryResponse:
+        normalized = ticker.strip().upper()
+        if db_session is None:
+            return QuoteHistoryResponse(
+                ticker=normalized,
+                timeframe=timeframe,
+                adjusted=adjusted,
+                total_days=0,
+                data=[],
+            )
+
+        days_map = {
+            "1M": 30,
+            "3M": 90,
+            "6M": 180,
+            "1Y": 365,
+            "2Y": 730,
+            "5Y": 1825,
+            "MAX": 3650,
+        }
+        days = days_map.get(timeframe.upper(), 365)
+
+        stmt = text(
+            """
+            SELECT 
+                to_char(cd.data_pregao, 'YYYY-MM-DD') as dt_pregao,
+                COALESCE(cd.preco_abertura, cd.preco_fechamento) as open_p,
+                COALESCE(cd.preco_maximo, cd.preco_fechamento) as high_p,
+                COALESCE(cd.preco_minimo, cd.preco_fechamento) as low_p,
+                cd.preco_fechamento as close_p,
+                COALESCE(cd.preco_ajustado, cd.preco_fechamento) as close_adj,
+                COALESCE(cd.volume_total, 0.0) as vol,
+                COALESCE(cd.variacao_percentual, 0.0) as var_pct,
+                cd.quantidade_negocios as trades,
+                ev.eventos as corp_events
+            FROM market.cotacao_diaria cd
+            JOIN core.ativo a ON a.id_ativo = cd.id_ativo
+            LEFT JOIN LATERAL (
+                SELECT STRING_AGG(ev_desc, ' | ') as eventos
+                FROM (
+                    SELECT 'Provento: ' || p.tipo_provento::text || ' R$ ' || ROUND(p.valor_por_acao, 2)::text as ev_desc
+                    FROM market.provento p
+                    WHERE p.id_ativo = a.id_ativo AND (p.data_com = cd.data_pregao OR p.data_ex = cd.data_pregao)
+                    UNION ALL
+                    SELECT 'Split: ' || s.tipo || ' ' || s.quantidade_antes::text || ':' || s.quantidade_depois::text as ev_desc
+                    FROM market.desdobramento_split s
+                    WHERE s.id_ativo = a.id_ativo AND s.data_ex = cd.data_pregao
+                    UNION ALL
+                    SELECT 'Evento: ' || e.tipo_evento as ev_desc
+                    FROM market.evento_corporativo e
+                    WHERE e.id_ativo = a.id_ativo AND e.data_ex = cd.data_pregao
+                ) sub
+            ) ev ON TRUE
+            WHERE a.ticker = :ticker
+              AND cd.data_pregao >= (CURRENT_DATE - (:days || ' days')::interval)
+            ORDER BY cd.data_pregao DESC
+            LIMIT :limit OFFSET :offset;
+            """
+        )
+        res = await db_session.execute(
+            stmt, {"ticker": normalized, "days": days, "limit": limit, "offset": offset}
+        )
+        rows = res.mappings().all()
+
+        items = [
+            DailyQuoteItem(
+                date=r["dt_pregao"],
+                open=float(r["open_p"]),
+                high=float(r["high_p"]),
+                low=float(r["low_p"]),
+                close=float(r["close_p"]),
+                close_adjusted=float(r["close_adj"]),
+                volume=float(r["vol"]),
+                pct_change=float(r["var_pct"]),
+                num_trades=int(r["trades"]) if r["trades"] is not None else None,
+                corporate_events=r["corp_events"],
+            )
+            for r in rows
+        ]
+
+        return QuoteHistoryResponse(
+            ticker=normalized,
+            timeframe=timeframe.upper(),
+            adjusted=adjusted,
+            total_days=len(items),
+            data=items,
+        )
 

@@ -15,6 +15,14 @@ class ETFFlowPoint(BaseModel):
     shares_count: int
 
 
+class ETFDrawdownResponse(BaseModel):
+    ticker: str
+    max_drawdown_pct: float
+    valley_date: Optional[str] = None
+    recovery_days: Optional[int] = None
+    drawdown_curve: List[List[float]] = Field(default_factory=list)
+
+
 class ETFDetailResponse(BaseModel):
     ticker: str
     name: str
@@ -31,3 +39,4 @@ class ETFDetailResponse(BaseModel):
     max_lending_limit_pct: float = 30.0
     underlying_holdings: List[ETFUnderlyingAsset] = Field(default_factory=list)
     flow_history_30d: List[ETFFlowPoint] = Field(default_factory=list)
+    drawdown: Optional[ETFDrawdownResponse] = None

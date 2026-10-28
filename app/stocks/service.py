@@ -953,8 +953,17 @@ class StockService:
         self,
         sort_by: str = "dy",
         limit: int = 50,
+        offset: int = 0,
+        search: Optional[str] = None,
+        sector: Optional[str] = None,
+        min_dy: Optional[float] = None,
+        max_pl: Optional[float] = None,
+        max_pvp: Optional[float] = None,
+        min_roe: Optional[float] = None,
+        min_roic: Optional[float] = None,
+        min_margem: Optional[float] = None,
         db_session: Optional[AsyncSession] = None,
-    ) -> List[StockRankingItem]:
+    ) -> tuple[List[StockRankingItem], int]:
         order_col = {
             "dy": "inf.dividend_yield DESC NULLS LAST",
             "pl": "inf.pl ASC NULLS LAST",
@@ -965,11 +974,77 @@ class StockService:
         }.get(sort_by.lower(), "inf.dividend_yield DESC NULLS LAST")
 
         if db_session is None:
-            return [
+            mock_items = [
                 StockRankingItem(rank=1, ticker="PETR4", name="Petrobras PN", sector="Petróleo e Gás", price=38.45, dy=14.8, pl=4.8, pvp=1.15, roe=28.5, roic=24.1, margem_liquida=19.2, ev_ebitda=3.2, liquidez=1850000000.0),
                 StockRankingItem(rank=2, ticker="VALE3", name="Vale S.A.", sector="Mineração", price=62.10, dy=9.2, pl=6.1, pvp=1.35, roe=22.1, roic=18.5, margem_liquida=24.0, ev_ebitda=4.1, liquidez=1240000000.0),
                 StockRankingItem(rank=3, ticker="WEGE3", name="WEG S.A.", sector="Bens Industriais", price=54.20, dy=1.8, pl=32.4, pvp=9.8, roe=31.2, roic=29.4, margem_liquida=16.1, ev_ebitda=22.5, liquidez=340000000.0),
             ]
+            return mock_items, len(mock_items)
+
+        where_clauses = [
+            "a.tipo_ativo::text = 'ACAO'",
+            "(inf.dividend_yield IS NULL OR inf.dividend_yield <= 40.0)",
+            "(cd.preco_fechamento IS NULL OR cd.preco_fechamento >= 1.0)",
+        ]
+        params: dict = {"limit": limit, "offset": offset}
+
+        if search and search.strip():
+            where_clauses.append("(a.ticker ILIKE :search OR ec.nome_empresarial ILIKE :search)")
+            params["search"] = f"%{search.strip()}%"
+
+        if sector and sector != "TODOS":
+            where_clauses.append("ec.setor ILIKE :sector")
+            params["sector"] = f"%{sector.strip()}%"
+
+        if min_dy is not None:
+            where_clauses.append("COALESCE(inf.dividend_yield, 0.0) >= :min_dy")
+            params["min_dy"] = min_dy
+
+        if max_pl is not None:
+            where_clauses.append("(inf.pl IS NOT NULL AND inf.pl <= :max_pl AND inf.pl > 0)")
+            params["max_pl"] = max_pl
+
+        if max_pvp is not None:
+            where_clauses.append("(inf.pvp IS NOT NULL AND inf.pvp <= :max_pvp)")
+            params["max_pvp"] = max_pvp
+
+        if min_roe is not None:
+            where_clauses.append("(inf.roe IS NOT NULL AND inf.roe >= :min_roe)")
+            params["min_roe"] = min_roe
+
+        if min_roic is not None:
+            where_clauses.append("(inf.roic IS NOT NULL AND inf.roic >= :min_roic)")
+            params["min_roic"] = min_roic
+
+        if min_margem is not None:
+            where_clauses.append("(inf.margem_liquida IS NOT NULL AND inf.margem_liquida >= :min_margem)")
+            params["min_margem"] = min_margem
+
+        where_sql = " AND ".join(where_clauses)
+        count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+
+        count_stmt = text(
+            f"""
+            SELECT count(*)
+            FROM core.ativo a
+            LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN LATERAL (
+                SELECT preco_fechamento, volume_total 
+                FROM market.cotacao_diaria 
+                WHERE id_ativo = a.id_ativo 
+                ORDER BY data_pregao DESC LIMIT 1
+            ) cd ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT pl, pvp, dividend_yield, roe, roic, margem_liquida, ev_ebitda
+                FROM analytics.indicador_fundamentalista 
+                WHERE id_ativo = a.id_ativo 
+                ORDER BY data_referencia DESC LIMIT 1
+            ) inf ON TRUE
+            WHERE {where_sql};
+            """
+        )
+        total_res = await db_session.execute(count_stmt, count_params)
+        total_count = total_res.scalar() or 0
 
         stmt = text(
             f"""
@@ -1000,18 +1075,16 @@ class StockService:
                 WHERE id_ativo = a.id_ativo 
                 ORDER BY data_referencia DESC LIMIT 1
             ) inf ON TRUE
-            WHERE a.tipo_ativo::text = 'ACAO'
-              AND (inf.dividend_yield IS NULL OR inf.dividend_yield <= 40.0)
-              AND (cd.preco_fechamento IS NULL OR cd.preco_fechamento >= 1.0)
-            ORDER BY {order_col}
-            LIMIT :limit;
+            WHERE {where_sql}
+            ORDER BY {order_col}, a.ticker ASC
+            LIMIT :limit OFFSET :offset;
             """
         )
-        res = await db_session.execute(stmt, {"limit": limit})
+        res = await db_session.execute(stmt, params)
         rows = res.mappings().all()
 
         items = []
-        for idx, r in enumerate(rows, start=1):
+        for idx, r in enumerate(rows, start=1 + offset):
             items.append(
                 StockRankingItem(
                     rank=idx,
@@ -1030,9 +1103,7 @@ class StockService:
                 )
             )
 
-        if not items:
-            return await self.get_stocks_ranking(sort_by=sort_by, limit=limit, db_session=None)
-        return items
+        return items, total_count
 
     async def get_us_stocks(self, db_session: AsyncSession) -> List[USEquityItem]:
         # Get latest PTAX

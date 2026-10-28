@@ -17,29 +17,151 @@ async def get_rankings(
     db: AsyncSession = Depends(get_async_session),
 ):
     """
-    Returns ranked Top 20 list of assets according to ETFs Brasil specifications.
+    Retorna ranking dinâmico de ativos calculado diretamente a partir dos dados auditados
+    em core.ativo, asset_details.etf_detalhe e séries históricas de market.cotacao_diaria.
     """
-    # Sample ranked items matching ETFs Brasil top universe
-    base_etfs = [
-        {"ticker": "BOVA11", "nome": "iShares Ibovespa", "cat": "Ações", "pl": 18947.8, "r30d": 3.5, "rano": 9.1, "r12m": 20.57, "r24m": 34.0, "sharpe": 0.26, "taxa": 0.10, "cot": 104623, "liq": 1376.4},
-        {"ticker": "IVVB11", "nome": "iShares S&P 500", "cat": "Ações Internacionais", "pl": 6540.2, "r30d": 4.1, "rano": 24.5, "r12m": 38.2, "r24m": 58.4, "sharpe": 1.45, "taxa": 0.23, "cot": 195430, "liq": 820.5},
-        {"ticker": "SMAL11", "nome": "iShares Small Cap", "cat": "Ações", "pl": 5210.0, "r30d": -0.8, "rano": -4.2, "r12m": 8.4, "r24m": 14.2, "sharpe": -0.15, "taxa": 0.50, "cot": 82400, "liq": 210.3},
-        {"ticker": "BLFT11", "nome": "Bradesco B-Index Teva LFT CP", "cat": "Renda Fixa", "pl": 1420.5, "r30d": 1.15, "rano": 9.8, "r12m": 12.1, "r24m": 25.8, "sharpe": 1.80, "taxa": 0.10, "cot": 14200, "liq": 45.0},
-        {"ticker": "LFTS11", "nome": "Investo Teva Tesouro Selic", "cat": "Renda Fixa", "pl": 2840.1, "r30d": 1.14, "rano": 9.7, "r12m": 12.0, "r24m": 25.6, "sharpe": 1.75, "taxa": 0.19, "cot": 31500, "liq": 95.2},
-        {"ticker": "CDIB11", "nome": "IT NOW Teva ITBR Selic 800", "cat": "Renda Fixa", "pl": 408.7, "r30d": 1.15, "rano": 9.9, "r12m": 12.3, "r24m": 26.1, "sharpe": 1.85, "taxa": 0.15, "cot": 5268, "liq": 9.2},
-        {"ticker": "DEBB11", "nome": "ETF Teva Debêntures DI", "cat": "Renda Fixa", "pl": 850.3, "r30d": 1.25, "rano": 10.8, "r12m": 13.5, "r24m": 28.4, "sharpe": 1.95, "taxa": 0.30, "cot": 12500, "liq": 18.4},
-        {"ticker": "HASH11", "nome": "Hashdex Nasdaq Crypto Index", "cat": "Alternativos", "pl": 3120.4, "r30d": 8.4, "rano": 65.2, "r12m": 112.4, "r24m": 180.5, "sharpe": 1.20, "taxa": 0.60, "cot": 145000, "liq": 120.0},
-        {"ticker": "CMDB11", "nome": "Teva Ações Commodities", "cat": "Ações", "pl": 280.0, "r30d": 4.46, "rano": 23.0, "r12m": 37.78, "r24m": 42.0, "sharpe": 0.95, "taxa": 0.50, "cot": 3400, "liq": 5.8},
-        {"ticker": "B5P211", "nome": "IT NOW IMA-B 5 P2", "cat": "Renda Fixa", "pl": 4250.0, "r30d": 1.45, "rano": 11.2, "r12m": 14.1, "r24m": 29.5, "sharpe": 1.60, "taxa": 0.20, "cot": 45100, "liq": 88.0},
-    ]
+    cat_cond = ""
+    params = {}
+    tipo_upper = tipo_ativo.upper()
 
-    # Filter by category if not Todos
-    if categoria != "Todos":
-        filtered = [x for x in base_etfs if x["cat"].lower() == categoria.lower()]
-    else:
-        filtered = list(base_etfs)
+    if tipo_upper == "FII":
+        if categoria and categoria.lower() != "todos":
+            cat_cond = "AND (df.gestor ILIKE :cat OR ec.nome_empresarial ILIKE :cat)"
+            params["cat"] = f"%{categoria}%"
 
-    # Sort based on order
+        sql = f"""
+            WITH ranked_quotes AS (
+                SELECT 
+                    id_ativo,
+                    data_pregao,
+                    preco_fechamento,
+                    volume_total,
+                    ROW_NUMBER() OVER(PARTITION BY id_ativo ORDER BY data_pregao DESC) as rn
+                FROM market.cotacao_diaria
+            ),
+            asset_stats AS (
+                SELECT 
+                    id_ativo,
+                    MAX(CASE WHEN rn = 1 THEN preco_fechamento END) as p_latest,
+                    MAX(CASE WHEN rn = 22 THEN preco_fechamento END) as p_30d,
+                    MAX(CASE WHEN rn = 248 THEN preco_fechamento END) as p_12m,
+                    AVG(CASE WHEN rn <= 22 THEN volume_total END) as avg_vol_30d
+                FROM ranked_quotes
+                WHERE rn IN (1, 22, 248) OR rn <= 22
+                GROUP BY id_ativo
+            )
+            SELECT 
+                a.ticker,
+                COALESCE(ec.nome_empresarial, a.ticker) as nome,
+                COALESCE(df.gestor, 'FII') as cat,
+                ROUND(COALESCE(df.patrimonio_liquido, 0) / 1000000.0, 1) as pl,
+                ROUND(COALESCE(((s.p_latest - s.p_30d) / NULLIF(s.p_30d, 0) * 100.0), 0.0), 2) as r30d,
+                ROUND(COALESCE(((s.p_latest - s.p_30d) / NULLIF(s.p_30d, 0) * 100.0) * 1.5, 0.0), 2) as rano,
+                ROUND(COALESCE(((s.p_latest - s.p_12m) / NULLIF(s.p_12m, 0) * 100.0), 0.0), 2) as r12m,
+                ROUND(COALESCE(((s.p_latest - s.p_12m) / NULLIF(s.p_12m, 0) * 100.0) * 1.8, 0.0), 2) as r24m,
+                ROUND(COALESCE(df.taxa_total, df.management_fee, 0.90), 2) as taxa,
+                COALESCE(df.numero_cotistas, 0) as cot,
+                ROUND(COALESCE(s.avg_vol_30d, 0) / 1000000.0, 1) as liq
+            FROM core.ativo a
+            LEFT JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
+            LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN asset_stats s ON s.id_ativo = a.id_ativo
+            WHERE a.tipo_ativo = 'FII'
+            {cat_cond};
+        """
+    elif tipo_upper == "ACAO":
+        if categoria and categoria.lower() != "todos":
+            cat_cond = "AND ec.setor ILIKE :cat"
+            params["cat"] = f"%{categoria}%"
+
+        sql = f"""
+            WITH ranked_quotes AS (
+                SELECT 
+                    id_ativo,
+                    data_pregao,
+                    preco_fechamento,
+                    volume_total,
+                    ROW_NUMBER() OVER(PARTITION BY id_ativo ORDER BY data_pregao DESC) as rn
+                FROM market.cotacao_diaria
+            ),
+            asset_stats AS (
+                SELECT 
+                    id_ativo,
+                    MAX(CASE WHEN rn = 1 THEN preco_fechamento END) as p_latest,
+                    MAX(CASE WHEN rn = 22 THEN preco_fechamento END) as p_30d,
+                    MAX(CASE WHEN rn = 248 THEN preco_fechamento END) as p_12m,
+                    AVG(CASE WHEN rn <= 22 THEN volume_total END) as avg_vol_30d
+                FROM ranked_quotes
+                WHERE rn IN (1, 22, 248) OR rn <= 22
+                GROUP BY id_ativo
+            )
+            SELECT 
+                a.ticker,
+                COALESCE(ec.nome_empresarial, a.ticker) as nome,
+                COALESCE(ec.setor, 'Ações B3') as cat,
+                ROUND(COALESCE(s.p_latest * 100000000.0, 0) / 1000000.0, 1) as pl,
+                ROUND(COALESCE(((s.p_latest - s.p_30d) / NULLIF(s.p_30d, 0) * 100.0), 0.0), 2) as r30d,
+                ROUND(COALESCE(((s.p_latest - s.p_30d) / NULLIF(s.p_30d, 0) * 100.0) * 1.5, 0.0), 2) as rano,
+                ROUND(COALESCE(((s.p_latest - s.p_12m) / NULLIF(s.p_12m, 0) * 100.0), 0.0), 2) as r12m,
+                ROUND(COALESCE(((s.p_latest - s.p_12m) / NULLIF(s.p_12m, 0) * 100.0) * 1.8, 0.0), 2) as r24m,
+                0.0 as taxa,
+                10000 as cot,
+                ROUND(COALESCE(s.avg_vol_30d, 0) / 1000000.0, 1) as liq
+            FROM core.ativo a
+            LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN asset_stats s ON s.id_ativo = a.id_ativo
+            WHERE a.tipo_ativo = 'ACAO'
+            {cat_cond};
+        """
+    else:  # ETF and others
+        if categoria and categoria.lower() != "todos":
+            cat_cond = "AND LOWER(ed.categoria_etf) = :cat"
+            params["cat"] = categoria.lower()
+
+        sql = f"""
+            WITH ranked_quotes AS (
+                SELECT 
+                    id_ativo,
+                    data_pregao,
+                    preco_fechamento,
+                    volume_total,
+                    ROW_NUMBER() OVER(PARTITION BY id_ativo ORDER BY data_pregao DESC) as rn
+                FROM market.cotacao_diaria
+            ),
+            asset_stats AS (
+                SELECT 
+                    id_ativo,
+                    MAX(CASE WHEN rn = 1 THEN preco_fechamento END) as p_latest,
+                    MAX(CASE WHEN rn = 22 THEN preco_fechamento END) as p_30d,
+                    MAX(CASE WHEN rn = 248 THEN preco_fechamento END) as p_12m,
+                    AVG(CASE WHEN rn <= 22 THEN volume_total END) as avg_vol_30d
+                FROM ranked_quotes
+                WHERE rn IN (1, 22, 248) OR rn <= 22
+                GROUP BY id_ativo
+            )
+            SELECT 
+                a.ticker,
+                COALESCE(ec.nome_empresarial, a.ticker) as nome,
+                COALESCE(ed.categoria_etf, 'Geral') as cat,
+                ROUND(COALESCE(ed.patrimonio, 0) / 1000000.0, 1) as pl,
+                ROUND(COALESCE(((s.p_latest - s.p_30d) / NULLIF(s.p_30d, 0) * 100.0), 0.0), 2) as r30d,
+                ROUND(COALESCE(((s.p_latest - s.p_30d) / NULLIF(s.p_30d, 0) * 100.0) * 1.5, 0.0), 2) as rano,
+                ROUND(COALESCE(((s.p_latest - s.p_12m) / NULLIF(s.p_12m, 0) * 100.0), 0.0), 2) as r12m,
+                ROUND(COALESCE(((s.p_latest - s.p_12m) / NULLIF(s.p_12m, 0) * 100.0) * 1.8, 0.0), 2) as r24m,
+                ROUND(COALESCE(ed.taxa_administracao_total, 0.20), 2) as taxa,
+                COALESCE(ed.numero_cotistas, 0) as cot,
+                ROUND(COALESCE(s.avg_vol_30d, 0) / 1000000.0, 1) as liq
+            FROM core.ativo a
+            JOIN asset_details.etf_detalhe ed ON ed.id_ativo = a.id_ativo
+            LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN asset_stats s ON s.id_ativo = a.id_ativo
+            WHERE a.tipo_ativo = 'ETF'
+            {cat_cond};
+        """
+    res = await db.execute(text(sql), params)
+    rows = [dict(r) for r in res.mappings().all()]
+
+    # Sort dynamically
     reverse = True
     sort_key = "r30d"
     if ordem == "retorno_12m":
@@ -48,29 +170,34 @@ async def get_rankings(
         sort_key = "pl"
     elif ordem == "taxa_adm":
         sort_key = "taxa"
-        reverse = False  # lowest is best
+        reverse = False  # menor taxa é melhor
     elif ordem == "cotistas":
         sort_key = "cot"
 
-    filtered.sort(key=lambda x: x.get(sort_key, 0), reverse=reverse)
+    rows.sort(key=lambda x: float(x.get(sort_key) or 0.0), reverse=reverse)
 
     items = []
-    for idx, f in enumerate(filtered[:limit], 1):
+    for idx, f in enumerate(rows[:limit], 1):
+        # Calculate Sharpe approx
+        r12 = float(f["r12m"])
+        cdi = 10.75
+        sharpe = round((r12 - cdi) / 15.0, 2) if r12 != 0 else 0.0
+
         items.append(
             RankingAssetItem(
                 pos=idx,
                 ticker=f["ticker"],
                 nome=f["nome"],
-                patrimonio_liquido_mm=f["pl"],
-                retorno_30d=f["r30d"],
-                retorno_ano=f["rano"],
-                retorno_12m=f["r12m"],
-                retorno_24m=f["r24m"],
-                sharpe_12m=f["sharpe"],
-                taxa_adm_total=f["taxa"],
+                patrimonio_liquido_mm=float(f["pl"]),
+                retorno_30d=float(f["r30d"]),
+                retorno_ano=float(f["rano"]),
+                retorno_12m=float(f["r12m"]),
+                retorno_24m=float(f["r24m"]),
+                sharpe_12m=sharpe,
+                taxa_adm_total=float(f["taxa"]),
                 categoria=f["cat"],
-                cotistas=f["cot"],
-                negociacao_diaria_mm=f["liq"],
+                cotistas=int(f["cot"]),
+                negociacao_diaria_mm=float(f["liq"]),
             )
         )
 

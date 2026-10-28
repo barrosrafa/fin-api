@@ -1,5 +1,5 @@
-from typing import List
-from fastapi import APIRouter, Depends, Query
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.fiis.schemas import FIIDetailResponse, FIIRankingItem, FIIVacancyHistoryResponse
@@ -14,13 +14,33 @@ def get_fii_service() -> FIIService:
 
 @router.get("/ranking", response_model=List[FIIRankingItem])
 async def get_fiis_ranking(
+    response: Response,
     sort_by: str = Query("dy", description="Critério de ordenação: dy, pvp, vacancia, liquidez"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    search: Optional[str] = Query(None),
+    segment: Optional[str] = Query(None),
+    min_dy: Optional[float] = Query(None),
+    max_pvp: Optional[float] = Query(None),
+    max_vacancia: Optional[float] = Query(None),
     service: FIIService = Depends(get_fii_service),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Ranking dinâmico de Fundos Imobiliários por DY, P/VP, Vacância ou Liquidez."""
-    return await service.get_fiis_ranking(sort_by=sort_by, limit=limit, db_session=db)
+    items, total = await service.get_fiis_ranking(
+        sort_by=sort_by,
+        limit=limit,
+        offset=offset,
+        search=search,
+        segment=segment,
+        min_dy=min_dy,
+        max_pvp=max_pvp,
+        max_vacancia=max_vacancia,
+        db_session=db,
+    )
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
+    return items
 
 
 @router.get("/{ticker}", response_model=FIIDetailResponse)

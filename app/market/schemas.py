@@ -48,6 +48,27 @@ class ScreenerFilter(BaseModel):
     max_p_l: Optional[float] = None
     min_roe: Optional[float] = None
     limit: int = 50
+
+
+class DailyQuoteItem(BaseModel):
+    date: str
+    open: float
+    high: float
+    low: float
+    close: float
+    close_adjusted: float
+    volume: float
+    pct_change: float
+    num_trades: Optional[int] = None
+    corporate_events: Optional[str] = None
+
+
+class QuoteHistoryResponse(BaseModel):
+    ticker: str
+    timeframe: str
+    adjusted: bool
+    total_days: int
+    data: list[DailyQuoteItem]
     offset: int = 0
 
 
@@ -92,9 +113,12 @@ class DividendCalendarItem(BaseModel):
     type: str  # DIVIDENDO, JCP, RENDIMENTO
     referenceMonth: str
     dateCom: str
+    dateEx: Optional[str] = None
     paymentDate: str
     valuePerShare: float
     yieldOnCostPct: float
+    status: str = "PAGO"  # FUTURO | PAGO
+    sourceUrl: Optional[str] = None
 
 
 class IbovPEPoint(BaseModel):

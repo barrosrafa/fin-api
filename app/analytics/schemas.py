@@ -66,7 +66,9 @@ class DividendCalendarDetailItem(BaseModel):
     ticker: str
     tipo: str
     data_com: Optional[str] = None
+    data_ex: Optional[str] = None
     data_pagamento: Optional[str] = None
+    status: str = "PAGO"
     valor_bruto: float
     aliquota_ir_pct: float
     valor_liquido: float
