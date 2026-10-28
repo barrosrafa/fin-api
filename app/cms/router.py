@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.cms.schemas import (
@@ -7,6 +7,7 @@ from app.cms.schemas import (
     GlossaryDetail,
     BookItem,
     ArticleItem,
+    ArticleDetail,
     SupportTicketCreate,
     SupportTicketResponse,
 )
@@ -54,6 +55,21 @@ async def get_articles(
     db: AsyncSession = Depends(get_async_session),
 ):
     return await service.get_articles(db_session=db, limit=limit)
+
+
+@router.get("/articles/{slug}", response_model=ArticleDetail)
+async def get_article_by_slug(
+    slug: str,
+    service: CMSService = Depends(get_cms_service),
+    db: AsyncSession = Depends(get_async_session),
+):
+    article = await service.get_article_by_slug(db_session=db, slug=slug)
+    if not article:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artigo com slug '{slug}' não encontrado.",
+        )
+    return article
 
 
 @router.post("/support/ticket", response_model=SupportTicketResponse)

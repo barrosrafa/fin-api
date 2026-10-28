@@ -72,7 +72,7 @@ async def handle_payment_webhook(
     # Strictly verify Asaas Webhook Token (Header: asaas-access-token)
     token = request.headers.get("asaas-access-token")
     if not token or not settings.ASAAS_WEBHOOK_SECRET or not secrets.compare_digest(token, settings.ASAAS_WEBHOOK_SECRET):
-        raise UnauthorizedException("Assinatura do webhook inválida ou ausente (asaas-access-token)")
+        raise UnauthorizedException("Invalid or missing asaas-access-token webhook header")
 
     body = await request.body()
     headers = dict(request.headers)

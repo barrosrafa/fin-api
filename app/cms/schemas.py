@@ -48,6 +48,11 @@ class ArticleItem(BaseModel):
     publicado_em: Optional[str] = None
 
 
+class ArticleDetail(ArticleItem):
+    conteudo_markdown: str
+
+
+
 class SupportTicketCreate(BaseModel):
     nome_contato: str
     email_contato: EmailStr

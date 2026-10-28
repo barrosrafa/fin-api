@@ -6,8 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.core.exceptions import FinApiException
 from app.core.logging import logger
-from app.core.database import close_database_engine
-from app.core.redis import close_redis_client
+from app.core.database import close_database_engine, get_async_session
+from app.core.redis import close_redis_client, get_redis_client
+from sqlalchemy import text
+from app.auth.router import router as auth_router
 from app.market.router import router as market_router
 from app.portfolio.router import router as portfolio_router
 from app.billing.router import router as billing_router
@@ -51,14 +53,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS Middleware (supports local development and all Vercel preview/production deployments)
+    # CORS Configuration
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://fin-web.vercel.app",
+        "https://fin.com.br",
+        "https://app.fin.com.br",
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_origin_regex=r"https://.*\.vercel\.app",
+        allow_origins=allowed_origins,
+        allow_origin_regex=r"^https:\/\/fin-web-[a-zA-Z0-9_-]+\.vercel\.app$" if settings.ENVIRONMENT != "production" else None,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
     )
 
     # Security Headers Middleware
@@ -79,9 +88,10 @@ def create_app() -> FastAPI:
             content={"error": True, "message": exc.message, "detail": exc.detail},
         )
 
-    # Health Check
+    # Health & Readiness Probes
+    @app.get("/live", tags=["Health"])
     @app.get("/health", tags=["Health"])
-    async def health_check():
+    async def liveness():
         return {
             "status": "healthy",
             "service": "fin-api",
@@ -89,7 +99,34 @@ def create_app() -> FastAPI:
             "environment": settings.ENVIRONMENT,
         }
 
+    @app.get("/ready", tags=["Health"])
+    async def readiness():
+        checks = {"database": False, "redis": False}
+        try:
+            from app.core.database import get_session_factory
+            factory = get_session_factory()
+            async with factory() as session:
+                await session.execute(text("SELECT 1"))
+            checks["database"] = True
+        except Exception as e:
+            logger.error("Readiness probe database check failed", error=str(e))
+
+        try:
+            redis = await get_redis_client()
+            if redis and await redis.ping():
+                checks["redis"] = True
+        except Exception as e:
+            logger.error("Readiness probe redis check failed", error=str(e))
+
+        is_ready = all(checks.values())
+        status_code = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+        return JSONResponse(
+            status_code=status_code,
+            content={"status": "ready" if is_ready else "not_ready", "checks": checks},
+        )
+
     # Mount Routers under /api/v1
+    app.include_router(auth_router, prefix="/api/v1")
     app.include_router(market_router, prefix="/api/v1")
     app.include_router(portfolio_router, prefix="/api/v1")
     app.include_router(billing_router, prefix="/api/v1")

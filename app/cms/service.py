@@ -9,6 +9,7 @@ from app.cms.schemas import (
     GlossaryResponse,
     BookItem,
     ArticleItem,
+    ArticleDetail,
     SupportTicketCreate,
     SupportTicketResponse,
 )
@@ -182,6 +183,38 @@ class CMSService:
             ]
         except Exception:
             return []
+
+    async def get_article_by_slug(self, db_session: AsyncSession, slug: str) -> Optional[ArticleDetail]:
+        stmt = text(
+            """
+            SELECT id_artigo, slug, titulo, subtitulo, autor_nome, categoria, tags,
+                   tempo_leitura_min, is_premium, to_char(publicado_em, 'YYYY-MM-DD') as dt_pub,
+                   conteudo_markdown
+            FROM cms.artigo_blog
+            WHERE slug = :slug
+            LIMIT 1;
+            """
+        )
+        try:
+            res = await db_session.execute(stmt, {"slug": slug})
+            row = res.mappings().first()
+            if row:
+                return ArticleDetail(
+                    id=row["id_artigo"],
+                    slug=row["slug"],
+                    titulo=row["titulo"],
+                    subtitulo=row["subtitulo"],
+                    autor_nome=row["autor_nome"],
+                    categoria=row["categoria"],
+                    tags=row["tags"] or [],
+                    tempo_leitura_min=row["tempo_leitura_min"],
+                    is_premium=row["is_premium"],
+                    publicado_em=row["dt_pub"],
+                    conteudo_markdown=row["conteudo_markdown"] or "",
+                )
+        except Exception:
+            pass
+        return None
 
     async def create_support_ticket(self, db_session: AsyncSession, ticket: SupportTicketCreate) -> SupportTicketResponse:
         stmt = text(
