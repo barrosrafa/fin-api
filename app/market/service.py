@@ -1,4 +1,5 @@
 import json
+import datetime
 from typing import Optional, Dict, Any, List
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -863,6 +864,7 @@ class MarketService:
             "MAX": 3650,
         }
         days = days_map.get(timeframe.upper(), 365)
+        start_date = datetime.date.today() - datetime.timedelta(days=days)
 
         stmt = text(
             """
@@ -882,27 +884,27 @@ class MarketService:
             LEFT JOIN LATERAL (
                 SELECT STRING_AGG(ev_desc, ' | ') as eventos
                 FROM (
-                    SELECT 'Provento: ' || p.tipo_provento::text || ' R$ ' || ROUND(p.valor_por_acao, 2)::text as ev_desc
+                    SELECT CONCAT('Provento', CHR(58), ' ', p.tipo_provento, ' R$ ', ROUND(p.valor_por_acao, 2)) as ev_desc
                     FROM market.provento p
                     WHERE p.id_ativo = a.id_ativo AND (p.data_com = cd.data_pregao OR p.data_ex = cd.data_pregao)
                     UNION ALL
-                    SELECT 'Split: ' || s.tipo || ' ' || s.quantidade_antes::text || ':' || s.quantidade_depois::text as ev_desc
+                    SELECT CONCAT('Split', CHR(58), ' ', s.tipo, ' ', s.quantidade_antes, CHR(58), s.quantidade_depois) as ev_desc
                     FROM market.desdobramento_split s
                     WHERE s.id_ativo = a.id_ativo AND s.data_ex = cd.data_pregao
                     UNION ALL
-                    SELECT 'Evento: ' || e.tipo_evento as ev_desc
+                    SELECT CONCAT('Evento', CHR(58), ' ', e.tipo_evento) as ev_desc
                     FROM market.evento_corporativo e
                     WHERE e.id_ativo = a.id_ativo AND e.data_ex = cd.data_pregao
                 ) sub
             ) ev ON TRUE
             WHERE a.ticker = :ticker
-              AND cd.data_pregao >= (CURRENT_DATE - (:days || ' days')::interval)
+              AND cd.data_pregao >= :start_date
             ORDER BY cd.data_pregao DESC
             LIMIT :limit OFFSET :offset;
             """
         )
         res = await db_session.execute(
-            stmt, {"ticker": normalized, "days": days, "limit": limit, "offset": offset}
+            stmt, {"ticker": normalized, "start_date": start_date, "limit": limit, "offset": offset}
         )
         rows = res.mappings().all()
 
