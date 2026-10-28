@@ -2,6 +2,7 @@ from typing import Annotated, Callable, Optional
 from fastapi import Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from app.config import get_settings, Settings
 from app.core.database import get_async_session
@@ -34,7 +35,16 @@ async def get_current_user(
         raise UnauthorizedException("Missing Authorization Bearer token")
 
     claims = await auth_provider.validate_token(auth_header.credentials)
-    return await auth_provider.get_or_create_user(claims, db_session=db)
+    user = await auth_provider.get_or_create_user(claims, db_session=db)
+    
+    # Enforce PostgreSQL Row-Level Security (RLS) tenant isolation
+    if db is not None:
+        await db.execute(
+            text("SET LOCAL app.current_user_id = :user_id"),
+            {"user_id": str(user.id)},
+        )
+    
+    return user
 
 
 def require_role(min_role: UserRole) -> Callable[[User], bool]:
