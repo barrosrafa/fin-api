@@ -73,3 +73,64 @@ async def handle_payment_webhook(
     event = await provider.parse_webhook(payload=body, headers=headers)
     processed = await service.handle_webhook_event(event, db_session=db)
     return {"received": True, "processed": processed}
+
+
+@router.get("/plans")
+async def get_plans():
+    return {
+        "plans": [
+            {
+                "id": "free",
+                "name": "Gratuito",
+                "price_monthly": 0.0,
+                "price_annual": 0.0,
+                "badge": "Iniciante",
+                "features": [
+                    "Cotações B3 com delay de 15 minutos",
+                    "Acesso aos filtros básicos de Ações e FIIs",
+                    "Simulador de Dividendos (até 3 simulações/mês)",
+                    "Acesso ao Dicionário e Biblioteca de Livros",
+                ],
+                "restricted_features": [
+                    "Histórico financeiro completo de 10 anos",
+                    "Checklist dos 5 Pilares de Valuation desbloqueado",
+                    "Mapa de Sazonalidade de Dividendos ilimitado",
+                    "Alertas de proventos via Telegram e WhatsApp",
+                    "Exportação de dados em planilhas Excel/CSV",
+                ],
+            },
+            {
+                "id": "pro_annual",
+                "name": "Premium Pro Anual",
+                "price_monthly": 29.90,
+                "price_annual": 358.80,
+                "badge": "Mais Popular - Economize 30%",
+                "features": [
+                    "Todos os recursos do plano Gratuito",
+                    "Histórico financeiro completo de 10 anos (Balanço, DRE, DFC)",
+                    "Checklist dos 5 Pilares de Valuation com Preço Teto Bazin e Preço Justo Graham",
+                    "Mapa de Sazonalidade de Dividendos com heatmap de 12 meses",
+                    "Simulador de Dividendos e Magic Number ilimitado",
+                    "Módulo internacional: Stocks EUA e REITs com métricas Nareit e IRS 30%",
+                    "Alertas imediatos de Data-Com e Pagamento via WhatsApp",
+                    "Exportação ilimitada de dados em XLSX e CSV",
+                    "Garantia incondicional de reembolso de 7 dias (CDC)",
+                ],
+                "restricted_features": [],
+            },
+            {
+                "id": "pro_monthly",
+                "name": "Premium Pro Mensal",
+                "price_monthly": 42.90,
+                "price_annual": 514.80,
+                "badge": "Flexibilidade Mensal",
+                "features": [
+                    "Todos os recursos do plano Premium Anual",
+                    "Cobrança recorrente mensal no cartão de crédito ou PIX",
+                    "Cancele a qualquer momento sem fidelidade ou multa",
+                ],
+                "restricted_features": [],
+            },
+        ]
+    }
+

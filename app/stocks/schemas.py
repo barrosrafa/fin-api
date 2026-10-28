@@ -242,3 +242,34 @@ class DividendMatrixResponse(BaseModel):
     matrix: List[DividendMatrixRow] = Field(default_factory=list)
 
 
+class USEquityItem(BaseModel):
+    ticker: str
+    name: str
+    price_usd: float
+    price_brl: float
+    ptax_rate: float
+    pe_ratio: Optional[float] = None
+    dividend_yield_pct: float
+    market_cap_usd: Optional[float] = None
+    sector: str = "Technology"
+
+
+class REITItem(BaseModel):
+    ticker: str
+    name: str
+    subtipo_reit: str
+    price_usd: float
+    price_brl: float
+    ptax_rate: float
+    ffo_per_share: float
+    affo_per_share: float
+    p_ffo: float
+    p_affo: float
+    ffo_payout_pct: float
+    occupancy_rate_pct: float
+    gross_dy_pct: float
+    net_dy_brl_pct: float  # With 30% IRS Withholding tax
+    properties_count: int
+
+
+

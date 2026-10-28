@@ -12,6 +12,8 @@ from app.stocks.schemas import (
     ConsistencyScreenerItem,
     StockRankingItem,
     DividendMatrixResponse,
+    USEquityItem,
+    REITItem,
 )
 from app.stocks.service import StockService
 
@@ -20,6 +22,22 @@ router = APIRouter(prefix="/stocks", tags=["Stocks"])
 
 def get_stock_service() -> StockService:
     return StockService()
+
+
+@router.get("/us", response_model=List[USEquityItem])
+async def get_us_stocks(
+    service: StockService = Depends(get_stock_service),
+    db: AsyncSession = Depends(get_async_session),
+):
+    return await service.get_us_stocks(db_session=db)
+
+
+@router.get("/reits", response_model=List[REITItem])
+async def get_reits(
+    service: StockService = Depends(get_stock_service),
+    db: AsyncSession = Depends(get_async_session),
+):
+    return await service.get_reits(db_session=db)
 
 
 @router.get("/ranking", response_model=List[StockRankingItem])

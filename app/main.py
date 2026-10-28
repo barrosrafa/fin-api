@@ -21,6 +21,10 @@ from app.screener.router import router as screener_router
 from app.comparator.router import router as comparator_router
 from app.intelligence.router import router as intelligence_router
 from app.macro.router import router as macro_router
+from app.analytics.router import router as analytics_router
+from app.cms.router import router as cms_router
+from app.suitability.router import router as suitability_router
+from app.brokers.router import router as brokers_router
 from app.portfolio.overrides import router as graph_router
 
 
@@ -86,6 +90,10 @@ def create_app() -> FastAPI:
     app.include_router(comparator_router, prefix="/api/v1")
     app.include_router(intelligence_router, prefix="/api/v1")
     app.include_router(macro_router, prefix="/api/v1")
+    app.include_router(analytics_router, prefix="/api/v1")
+    app.include_router(cms_router, prefix="/api/v1")
+    app.include_router(suitability_router, prefix="/api/v1")
+    app.include_router(brokers_router, prefix="/api/v1")
     app.include_router(graph_router)
 
     return app
