@@ -29,6 +29,36 @@ async def refresh_ticker_data_task(
             ex=300,
         )
 
+    # Step 1.1: Delegate on-demand task to fin-ingestion via PostgreSQL task queue
+    if db_factory is not None:
+        try:
+            async with db_factory() as session:
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO ingestion.ingestion_task (
+                            policy_id, task_key, dataset_name, target_entity, priority, status
+                        )
+                        VALUES (
+                            'b3_daily_quotes',
+                            :task_key,
+                            'cotacao_diaria',
+                            :target,
+                            1,
+                            'PENDING'
+                        )
+                        ON CONFLICT (task_key) DO NOTHING;
+                        """
+                    ),
+                    {
+                        "task_key": f"api_demand:{normalized_ticker}:{datetime.now(timezone.utc).strftime('%Y-%m-%d-%H')}",
+                        "target": normalized_ticker,
+                    },
+                )
+                await session.commit()
+        except Exception as e:
+            logger.debug(f"Queue delegation notice for {normalized_ticker}: {e}")
+
     # Step 2: Route collection by asset class with negative cache tracking
     try:
         if asset_class == "fii":
