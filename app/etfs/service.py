@@ -96,16 +96,32 @@ class ETFService:
 
         spread_pct = round(((current_price - nav_per_share) / nav_per_share) * 100, 3)
 
-        holdings = db_holdings or [
-            ETFUnderlyingAsset(ticker="VALE3", name="Vale S.A.", weight_pct=13.2, sector="Materiais Básicos"),
-            ETFUnderlyingAsset(ticker="PETR4", name="Petrobras PN", weight_pct=11.5, sector="Petróleo e Gás"),
-            ETFUnderlyingAsset(ticker="ITUB4", name="Itaú Unibanco PN", weight_pct=8.4, sector="Financeiro"),
-            ETFUnderlyingAsset(ticker="PETR3", name="Petrobras ON", weight_pct=6.1, sector="Petróleo e Gás"),
-            ETFUnderlyingAsset(ticker="BBDC4", name="Banco Bradesco PN", weight_pct=4.5, sector="Financeiro"),
-            ETFUnderlyingAsset(ticker="ELET3", name="Eletrobras ON", weight_pct=3.8, sector="Utilidade Pública"),
-            ETFUnderlyingAsset(ticker="B3SA3", name="B3 S.A.", weight_pct=3.5, sector="Financeiro"),
-            ETFUnderlyingAsset(ticker="WEGE3", name="WEG S.A.", weight_pct=3.2, sector="Bens Industriais"),
-        ]
+        if db_holdings:
+            holdings = db_holdings
+        elif t == "IVVB11":
+            holdings = [
+                ETFUnderlyingAsset(ticker="MSFT", name="Microsoft Corporation", weight_pct=6.8, sector="Tecnologia da Informação"),
+                ETFUnderlyingAsset(ticker="AAPL", name="Apple Inc.", weight_pct=6.5, sector="Tecnologia da Informação"),
+                ETFUnderlyingAsset(ticker="NVDA", name="NVIDIA Corporation", weight_pct=6.2, sector="Tecnologia da Informação"),
+                ETFUnderlyingAsset(ticker="AMZN", name="Amazon.com Inc.", weight_pct=3.6, sector="Consumo Discricionário"),
+                ETFUnderlyingAsset(ticker="GOOGL", name="Alphabet Inc. Class A", weight_pct=2.3, sector="Serviços de Comunicação"),
+                ETFUnderlyingAsset(ticker="META", name="Meta Platforms Inc.", weight_pct=2.2, sector="Serviços de Comunicação"),
+                ETFUnderlyingAsset(ticker="GOOG", name="Alphabet Inc. Class C", weight_pct=2.0, sector="Serviços de Comunicação"),
+                ETFUnderlyingAsset(ticker="BRK.B", name="Berkshire Hathaway Inc.", weight_pct=1.7, sector="Financeiro"),
+                ETFUnderlyingAsset(ticker="AVGO", name="Broadcom Inc.", weight_pct=1.6, sector="Tecnologia da Informação"),
+                ETFUnderlyingAsset(ticker="LLY", name="Eli Lilly and Company", weight_pct=1.5, sector="Saúde"),
+            ]
+        else:
+            holdings = [
+                ETFUnderlyingAsset(ticker="VALE3", name="Vale S.A.", weight_pct=13.2, sector="Materiais Básicos"),
+                ETFUnderlyingAsset(ticker="PETR4", name="Petrobras PN", weight_pct=11.5, sector="Petróleo e Gás"),
+                ETFUnderlyingAsset(ticker="ITUB4", name="Itaú Unibanco PN", weight_pct=8.4, sector="Financeiro"),
+                ETFUnderlyingAsset(ticker="PETR3", name="Petrobras ON", weight_pct=6.1, sector="Petróleo e Gás"),
+                ETFUnderlyingAsset(ticker="BBDC4", name="Banco Bradesco PN", weight_pct=4.5, sector="Financeiro"),
+                ETFUnderlyingAsset(ticker="ELET3", name="Eletrobras ON", weight_pct=3.8, sector="Utilidade Pública"),
+                ETFUnderlyingAsset(ticker="B3SA3", name="B3 S.A.", weight_pct=3.5, sector="Financeiro"),
+                ETFUnderlyingAsset(ticker="WEGE3", name="WEG S.A.", weight_pct=3.2, sector="Bens Industriais"),
+            ]
 
         flows = [
             ETFFlowPoint(date="2026-10-20", flow_millions=45.2, shares_count=350000),

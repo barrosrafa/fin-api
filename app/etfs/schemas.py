@@ -21,8 +21,8 @@ class ETFDetailResponse(BaseModel):
     benchmark_index: str
     provider: str
     current_price: float
-    nav_per_share: float
-    nav_spread_pct: float  # (price - nav) / nav * 100
+    nav_per_share: Optional[float] = None
+    nav_spread_pct: Optional[float] = None  # (price - nav) / nav * 100
     ter_pct: float  # Total Expense Ratio (primary + secondary)
     primary_fee_pct: float
     secondary_fee_pct: float

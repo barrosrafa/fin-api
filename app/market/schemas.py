@@ -77,7 +77,7 @@ class AssetSummaryResponse(BaseModel):
     subsector: Optional[str] = None
     currentPrice: float
     change24h: float
-    change12m: float
+    change12m: Optional[float] = None
     dividendYield: float
     marketCap: Optional[float] = None
     pvp: Optional[float] = None

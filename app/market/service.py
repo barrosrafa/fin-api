@@ -136,22 +136,42 @@ class MarketService:
                 a.ticker,
                 COALESCE(ec.nome_empresarial, a.ticker) as nome,
                 a.tipo_ativo::text as tipo,
-                COALESCE(ec.setor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Imobiliário' WHEN 'ETF' THEN 'Índice B3' ELSE 'Geral' END) as setor,
+                COALESCE(ed.indice_referencia, ec.setor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Imobiliário' WHEN 'ETF' THEN 'Índice Global' ELSE 'Geral' END) as setor,
                 COALESCE(ec.subsetor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Tijolo / Papel' WHEN 'ETF' THEN 'Renda Variável' ELSE 'Diversificado' END) as subsetor,
                 COALESCE(cd.preco_fechamento, a.volume_medio, 10.0) as preco,
                 COALESCE(cd.variacao_percentual, 0.0) as var24h,
+                cd12m.preco_12m,
+                spark.historico_5d,
                 COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) as dy,
                 COALESCE(inf.pvp, df.pvp, 1.0) as pvp,
                 COALESCE(inf.pl, 0.0) as pl,
                 COALESCE(inf.valor_mercado, df.patrimonio_liquido, 0.0) as market_cap
             FROM core.ativo a
             LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN asset_details.etf_detalhe ed ON ed.id_ativo = a.id_ativo
             LEFT JOIN LATERAL (
-                SELECT preco_fechamento, variacao_percentual 
+                SELECT preco_fechamento, variacao_percentual, data_pregao
                 FROM market.cotacao_diaria 
                 WHERE id_ativo = a.id_ativo 
                 ORDER BY data_pregao DESC LIMIT 1
             ) cd ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT preco_fechamento as preco_12m
+                FROM market.cotacao_diaria 
+                WHERE id_ativo = a.id_ativo 
+                  AND data_pregao <= (cd.data_pregao - INTERVAL '330 days')
+                ORDER BY data_pregao DESC LIMIT 1
+            ) cd12m ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT array_agg(sub.preco_fechamento ORDER BY sub.data_pregao ASC) as historico_5d
+                FROM (
+                    SELECT preco_fechamento, data_pregao
+                    FROM market.cotacao_diaria
+                    WHERE id_ativo = a.id_ativo
+                    ORDER BY data_pregao DESC
+                    LIMIT 5
+                ) sub
+            ) spark ON TRUE
             LEFT JOIN LATERAL (
                 SELECT dividend_yield, pvp, pl, valor_mercado 
                 FROM analytics.indicador_fundamentalista 
@@ -189,13 +209,21 @@ class MarketService:
             elif pl is not None and pl < 6.0 and pl > 0:
                 badge = "Graham Desconto"
 
-            spark = [
-                round(p * 0.96, 2),
-                round(p * 0.98, 2),
-                round(p * 0.97, 2),
-                round(p * 0.99, 2),
-                round(p, 2),
-            ]
+            # Real 5-day sparkline from closing prices or single current price
+            spark_raw = r.get("historico_5d")
+            if spark_raw and isinstance(spark_raw, (list, tuple)) and len(spark_raw) >= 2:
+                spark = [round(float(v), 2) for v in spark_raw if v is not None]
+            else:
+                spark = [round(p, 2)]
+
+            preco_12m = float(r["preco_12m"]) if r.get("preco_12m") is not None and float(r["preco_12m"]) > 0 else None
+            if preco_12m is not None and preco_12m > 0:
+                calc_12m = ((p - preco_12m) / preco_12m) * 100.0
+                if r["tipo"] == "ACAO" and calc_12m < -100.0:
+                    calc_12m = -100.0
+                change12m = round(calc_12m, 2)
+            else:
+                change12m = None
 
             results.append(
                 AssetSummaryResponse(
@@ -206,7 +234,7 @@ class MarketService:
                     subsector=r["subsetor"],
                     currentPrice=p,
                     change24h=float(r["var24h"]),
-                    change12m=round(float(r["var24h"]) * 3.5 + (dy * 0.8), 2),
+                    change12m=change12m,
                     dividendYield=dy,
                     marketCap=float(r["market_cap"]) if r["market_cap"] else None,
                     pvp=pvp,

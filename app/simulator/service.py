@@ -35,19 +35,26 @@ class SimulatorService:
         cdi_curve = []
         cdi_balance = request.startingAmount
         curr_dt = start_dt
+        monthly_cdi_factor = (1.0 + cdi_annual) ** (1.0 / 12.0)
+        cdi_twr_factor = 1.0
+
         for m in range(num_months + 1):
             ts_ms = int(datetime(curr_dt.year, curr_dt.month, min(28, curr_dt.day)).timestamp() * 1000)
             cdi_curve.append([ts_ms, round(cdi_balance, 2)])
-            # Monthly return + contribution
-            monthly_cdi_factor = (1.0 + cdi_annual) ** (1.0 / 12.0)
+
+            if m == num_months:
+                break
+
+            cdi_twr_factor *= monthly_cdi_factor
             cdi_balance = cdi_balance * monthly_cdi_factor + request.monthlyContributions
             curr_dt += timedelta(days=30)
 
-        cdi_total_return = ((cdi_balance - request.startingAmount) / request.startingAmount) * 100.0
+        cdi_total_return = (cdi_twr_factor - 1.0) * 100.0
+        cdi_cagr = ((cdi_twr_factor) ** (1.0 / years) - 1.0) * 100.0
         cdi_metrics = PortfolioSimulationMetrics(
             finalAmount=round(cdi_balance, 2),
             totalReturnPct=round(cdi_total_return, 2),
-            cagrPct=round(((cdi_balance / request.startingAmount) ** (1.0 / years) - 1.0) * 100.0, 2),
+            cagrPct=round(cdi_cagr, 2),
             standardDeviation=PeriodReturnData(
                 YearToDate=1.2, months12=1.5, months24=1.6, months36=1.7, allTime=1.6
             ),
@@ -90,19 +97,15 @@ class SimulatorService:
             for a in p_draft.assets:
                 norm_w = a.percentage / total_weight
                 t_upper = a.ticker.upper()
-                prior = asset_priors.get(t_upper, {"ret": 0.140, "vol": 0.160, "fee": 0.0030})
+                prior = asset_priors.get(t_upper, {"ret": 0.125, "vol": 0.150, "fee": 0.0030})
                 p_ret_annual += prior["ret"] * norm_w
-                p_vol_annual += (prior["vol"] ** 2) * (norm_w ** 2)  # simplified variance sum
+                p_vol_annual += (prior["vol"] ** 2) * (norm_w ** 2)
                 p_fee_annual += prior["fee"] * norm_w
 
-            # Diversification correlation bonus reduces volatility
             p_vol_annual = math.sqrt(max(0.0001, p_vol_annual)) * 0.85
-
-            # Deduct fees: admin fee + advisory fee
             net_annual_ret = max(-0.5, p_ret_annual - p_fee_annual - (request.advisoryFee / 100.0))
             net_monthly_ret = (1.0 + net_annual_ret) ** (1.0 / 12.0) - 1.0
 
-            # Generate monthly equity and drawdown curves
             equity_curve = []
             drawdown_curve = []
             balance = request.startingAmount
@@ -111,14 +114,17 @@ class SimulatorService:
             valley_date_str = request.startDate
 
             curr_dt = start_dt
-            # Rebalance intervals in months: MENSAL=1, TRIMESTRAL=3, SEMESTRAL=6, ANUAL=12, NENHUM=999
             reb_step = {"MENSAL": 1, "TRIMESTRAL": 3, "SEMESTRAL": 6, "ANUAL": 12}.get(request.rebalancingFrequency, 999)
+
+            # Cumulative TWR compounder (isolates portfolio capital gain from cash inflows)
+            twr_factor = 1.0
+            total_invested = request.startingAmount
 
             for m in range(num_months + 1):
                 ts_ms = int(datetime(curr_dt.year, curr_dt.month, min(28, curr_dt.day)).timestamp() * 1000)
                 equity_curve.append([ts_ms, round(balance, 2)])
 
-                # Drawdown
+                # Drawdown calculation relative to running peak capital
                 if balance > peak:
                     peak = balance
                 dd_pct = ((balance - peak) / peak) * 100.0 if peak > 0 else 0.0
@@ -128,15 +134,21 @@ class SimulatorService:
                     max_dd_val = dd_pct
                     valley_date_str = curr_dt.strftime("%Y-%m-%d")
 
-                # Monthly discrete evolution with pseudo-random volatility drift
-                drift = (math.sin(m * 0.7) * 0.4) * (p_vol_annual / math.sqrt(12.0))
-                month_gain = net_monthly_ret + drift
+                # If last point, do not compound further return
+                if m == num_months:
+                    break
+
+                # Monthly capital evolution: growth occurs on existing capital before new contribution
+                month_gain = net_monthly_ret
+                twr_factor *= (1.0 + month_gain)
                 balance = balance * (1.0 + month_gain) + request.monthlyContributions
+                total_invested += request.monthlyContributions
 
                 curr_dt += timedelta(days=30)
 
-            total_ret_pct = ((balance - request.startingAmount) / request.startingAmount) * 100.0
-            cagr = ((balance / request.startingAmount) ** (1.0 / years) - 1.0) * 100.0
+            # Strict TWR (Time-Weighted Return) ensuring contributions do not inflate yield
+            total_ret_pct = (twr_factor - 1.0) * 100.0
+            cagr = ((twr_factor) ** (1.0 / years) - 1.0) * 100.0
 
             # Sharpe & Sortino
             sharpe_all = round((net_annual_ret - cdi_annual) / p_vol_annual, 2) if p_vol_annual > 0 else 1.0

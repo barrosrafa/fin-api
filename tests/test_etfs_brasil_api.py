@@ -100,3 +100,20 @@ async def test_etf_detail():
         assert data["ticker"] == "BOVA11"
         assert len(data["underlying_holdings"]) > 0
         assert data["ter_pct"] > 0
+
+
+@pytest.mark.asyncio
+async def test_ivvb11_benchmark_and_holdings_consistency():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/v1/etfs/IVVB11")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ticker"] == "IVVB11"
+        assert "S&P 500" in data["benchmark_index"]
+        # Ensure holdings are US / S&P 500 companies, not Brazilian Ibov
+        holding_tickers = [h["ticker"] for h in data["underlying_holdings"]]
+        assert "MSFT" in holding_tickers or "AAPL" in holding_tickers
+        assert "PETR4" not in holding_tickers
+        assert "VALE3" not in holding_tickers
+

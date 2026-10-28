@@ -48,10 +48,18 @@ class FIIService:
                     COALESCE(cd.preco_fechamento, 160.0) as preco,
                     COALESCE(df.pvp, 0.98) as pvp,
                     COALESCE(df.dividend_yield, 8.5) as dy,
-                    COALESCE(df.patrimonio_liquido, 5000000000.0) as pl
+                    COALESCE(df.patrimonio_liquido, 5000000000.0) as pl,
+                    fhv.vacancia_fisica_pct as vf,
+                    fhv.vacancia_financeira_pct as vfin
                 FROM core.ativo a
                 LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
                 LEFT JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
+                LEFT JOIN LATERAL (
+                    SELECT vacancia_fisica_pct, vacancia_financeira_pct 
+                    FROM asset_details.fii_historico_vacancia 
+                    WHERE id_ativo = a.id_ativo 
+                    ORDER BY data_referencia DESC LIMIT 1
+                ) fhv ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT preco_fechamento 
                     FROM market.cotacao_diaria 
@@ -74,10 +82,10 @@ class FIIService:
                 pvp = float(row["pvp"])
                 dividend_yield_12m = float(row["dy"])
                 net_worth = float(row["pl"])
-                physical_vacancy_pct = 2.4
-                financial_vacancy_pct = 1.8
+                physical_vacancy_pct = float(row["vf"]) if row["vf"] is not None else 0.0
+                financial_vacancy_pct = float(row["vfin"]) if row["vfin"] is not None else 0.0
 
-            # 2. Fetch Real Properties from asset_details.fii_imovel
+            # 2. Fetch Real Properties from asset_details.fii_imovel strictly isolated by id_ativo
             prop_stmt = text(
                 """
                 SELECT 
@@ -90,14 +98,15 @@ class FIIService:
                     fi.abl_total_m2,
                     fi.classe_siila,
                     COALESCE(fip.participacao_pct, 100.0) as part_pct,
-                    COALESCE(100.0 - fip.vacancia_fisica_pct, 98.0) as occupancy_pct
+                    COALESCE(100.0 - fip.vacancia_fisica_pct, 100.0) as occupancy_pct
                 FROM asset_details.fii_imovel fi
-                LEFT JOIN asset_details.fii_imovel_participacao fip ON fip.id_imovel = fi.id_imovel
+                JOIN asset_details.fii_imovel_participacao fip ON fip.id_imovel = fi.id_imovel
+                WHERE fip.id_ativo = :id_ativo
                 ORDER BY fi.abl_total_m2 DESC
-                LIMIT 10;
+                LIMIT 20;
                 """
             )
-            p_res = await db_session.execute(prop_stmt)
+            p_res = await db_session.execute(prop_stmt, {"id_ativo": id_ativo})
             for pr in p_res.mappings().all():
                 properties.append(
                     FIIPropertyItem(
@@ -135,8 +144,8 @@ class FIIService:
                     )
                 )
 
-        # Fallback for properties if empty
-        if not properties:
+        # Fallback for properties only in offline/mock mode for HGLG11
+        if not properties and db_session is None and t == "HGLG11":
             properties = [
                 FIIPropertyItem(
                     id="prop-1",
