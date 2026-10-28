@@ -1,3 +1,4 @@
+import os
 import asyncio
 import typer
 import uvicorn
@@ -14,11 +15,13 @@ cli = typer.Typer(help="fin-api unified management CLI for API server and backgr
 @cli.command()
 def serve(
     host: str = typer.Option("0.0.0.0", help="Host IP to bind"),
-    port: int = typer.Option(8000, help="Port to listen on"),
+    port: int = typer.Option(None, help="Port to listen on (defaults to $PORT or config)"),
     reload: bool = typer.Option(False, help="Enable auto-reload for local development"),
     workers: int = typer.Option(1, help="Number of Uvicorn worker processes"),
 ):
     """Start the FastAPI HTTP application server."""
+    if port is None:
+        port = int(os.environ.get("PORT", get_settings().PORT or 8000))
     logger.info(f"Starting fin-api HTTP server on {host}:{port} (workers={workers}, reload={reload})")
     uvicorn.run(
         "app.main:app",

@@ -19,5 +19,5 @@ COPY app ./app
 
 EXPOSE 8000
 
-# Default entrypoint runs the HTTP server
-CMD ["python", "-m", "app.cli", "serve", "--host", "0.0.0.0", "--port", "8000"]
+# Default entrypoint runs the HTTP server (dynamically binds to $PORT or 8000)
+CMD ["python", "-m", "app.cli", "serve", "--host", "0.0.0.0"]
