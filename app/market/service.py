@@ -52,14 +52,8 @@ class MarketService:
         stmt = text(
             """
             SELECT b.codigo, b.nome, 
-                   COALESCE(
-                       (SELECT s.valor FROM market.benchmark_serie s WHERE s.id_benchmark = b.id_benchmark ORDER BY s.data_referencia DESC LIMIT 1),
-                       100.0
-                   ) as last_val,
-                   COALESCE(
-                       (SELECT s.valor_normalizado FROM market.benchmark_serie s WHERE s.id_benchmark = b.id_benchmark ORDER BY s.data_referencia DESC LIMIT 1),
-                       0.0
-                   ) as last_change
+                   (SELECT s.valor FROM market.benchmark_serie s WHERE s.id_benchmark = b.id_benchmark ORDER BY s.data_referencia DESC LIMIT 1) as last_val,
+                   NULL as last_change
             FROM market.benchmark b
             WHERE b.codigo IN ('IBOV', 'IFIX', 'USDBRL', 'SELIC', 'SPX', 'BTCBRL')
             ORDER BY CASE b.codigo
@@ -77,6 +71,8 @@ class MarketService:
 
         benchmarks = []
         for r in rows:
+            if r["last_val"] is None:
+                continue
             # fetch sparkline
             spark_stmt = text(
                 """
@@ -90,11 +86,9 @@ class MarketService:
             )
             spark_res = await db_session.execute(spark_stmt, {"codigo": r["codigo"]})
             spark_vals = [float(val[0]) for val in spark_res.fetchall()][::-1]
-            if not spark_vals:
-                spark_vals = [float(r["last_val"])] * 5
             
             # Compute actual percentage change from last 2 points if available
-            change_pct = float(r["last_change"])
+            change_pct = None
             if len(spark_vals) >= 2 and spark_vals[-2] > 0:
                 change_pct = round(((spark_vals[-1] - spark_vals[-2]) / spark_vals[-2]) * 100.0, 2)
 
@@ -868,7 +862,20 @@ class MarketService:
 
         stmt = text(
             """
-            SELECT 
+            WITH eligible AS (
+                SELECT cd.*,
+                    LAG(cd.preco_fechamento) OVER (ORDER BY cd.data_pregao) AS previous_close,
+                    LAG(COALESCE(cd.preco_ajustado, cd.preco_fechamento)) OVER (ORDER BY cd.data_pregao) AS previous_adjusted
+                FROM market.cotacao_diaria cd
+                JOIN core.ativo a ON a.id_ativo = cd.id_ativo
+                WHERE a.ticker = :ticker
+                  AND cd.preco_fechamento > 0
+                  AND (a.tipo_ativo NOT IN ('ACAO', 'FII', 'ETF', 'BDR', 'FI_INFRA')
+                       OR EXTRACT(ISODOW FROM cd.data_pregao) BETWEEN 1 AND 5)
+                  AND cd.data_pregao <= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+            )
+            SELECT
+                COUNT(*) OVER () AS total_count,
                 to_char(cd.data_pregao, 'YYYY-MM-DD') as dt_pregao,
                 COALESCE(cd.preco_abertura, cd.preco_fechamento) as open_p,
                 COALESCE(cd.preco_maximo, cd.preco_fechamento) as high_p,
@@ -876,10 +883,12 @@ class MarketService:
                 cd.preco_fechamento as close_p,
                 COALESCE(cd.preco_ajustado, cd.preco_fechamento) as close_adj,
                 COALESCE(cd.volume_total, 0.0) as vol,
-                COALESCE(cd.variacao_percentual, 0.0) as var_pct,
+                CASE WHEN :adjusted THEN
+                    (COALESCE(cd.preco_ajustado, cd.preco_fechamento) / NULLIF(cd.previous_adjusted, 0) - 1) * 100
+                ELSE (cd.preco_fechamento / NULLIF(cd.previous_close, 0) - 1) * 100 END as var_pct,
                 cd.quantidade_negocios as trades,
                 ev.eventos as corp_events
-            FROM market.cotacao_diaria cd
+            FROM eligible cd
             JOIN core.ativo a ON a.id_ativo = cd.id_ativo
             LEFT JOIN LATERAL (
                 SELECT STRING_AGG(ev_desc, ' | ') as eventos
@@ -904,7 +913,7 @@ class MarketService:
             """
         )
         res = await db_session.execute(
-            stmt, {"ticker": normalized, "start_date": start_date, "limit": limit, "offset": offset}
+            stmt, {"ticker": normalized, "start_date": start_date, "limit": limit, "offset": offset, "adjusted": adjusted}
         )
         rows = res.mappings().all()
 
@@ -917,7 +926,7 @@ class MarketService:
                 close=float(r["close_p"]),
                 close_adjusted=float(r["close_adj"]),
                 volume=float(r["vol"]),
-                pct_change=float(r["var_pct"]),
+                pct_change=float(r["var_pct"]) if r["var_pct"] is not None else None,
                 num_trades=int(r["trades"]) if r["trades"] is not None else None,
                 corporate_events=r["corp_events"],
             )
@@ -928,7 +937,7 @@ class MarketService:
             ticker=normalized,
             timeframe=timeframe.upper(),
             adjusted=adjusted,
-            total_days=len(items),
+            total_days=int(rows[0].get("total_count", len(items))) if rows else 0,
             data=items,
         )
 

@@ -1,4 +1,8 @@
 import json
+from datetime import datetime, timezone
+from decimal import Decimal, localcontext
+from app.calculations.money import decimal_value, money
+from app.calculations.pnl import Position
 from typing import List, Optional, Dict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,14 +30,12 @@ class PortfolioService:
         current_avg_price: float,
         new_qty: float,
         new_price: float,
-    ) -> float:
-        if new_qty <= 0:
-            return current_avg_price
-        total_shares = current_qty + new_qty
-        if total_shares <= 0:
-            return 0.0
-        total_spent = (current_qty * current_avg_price) + (new_qty * new_price)
-        return round(total_spent / total_shares, 4)
+    ) -> Decimal:
+        qty = decimal_value(current_qty)
+        avg = decimal_value(current_avg_price)
+        with localcontext() as context:
+            context.prec = 38
+            return Position(qty, qty * avg).buy(new_qty, new_price).average_price
 
     async def create_wallet(
         self,
@@ -123,65 +125,69 @@ class PortfolioService:
         res = await db_session.execute(stmt, {"wallet_id": wallet_id})
         rows = res.mappings().all()
 
-        total_cost = 0.0
-        total_equity = 0.0
-        positions = []
-        allocation: Dict[str, float] = {}
+        with localcontext() as context:
+            context.prec = 50
+            total_cost = Decimal(0)
+            covered_equity = Decimal(0)
+            priced_positions = 0
+            positions = []
+            allocation: Dict[str, Decimal] = {}
 
-        for r in rows:
-            ticker = r["ticker"]
-            qty = float(r["quantidade"])
-            avg_price = float(r["preco_medio"])
-            cost = qty * avg_price
-            total_cost += cost
-
-            current_price = avg_price
-            if self.redis is not None:
-                cached = await self.redis.get(f"quote:{ticker}")
-                if cached:
+            for r in rows:
+                ticker = r["ticker"]
+                qty = decimal_value(r["quantidade"], positive=True)
+                avg_price = decimal_value(r["preco_medio"])
+                cost = qty * avg_price
+                total_cost += cost
+                price, as_of, source = None, None, None
+                status = "missing"
+                if self.redis is not None:
                     try:
-                        q_data = json.loads(cached.decode("utf-8") if isinstance(cached, bytes) else cached)
-                        current_price = float(q_data.get("price", avg_price))
-                    except Exception:
-                        pass
-
-            equity = qty * current_price
-            total_equity += equity
-            pl = equity - cost
-            pl_pct = (pl / cost * 100.0) if cost > 0 else 0.0
-
-            asset_type = str(r["tipo_ativo"])
-            allocation[asset_type] = allocation.get(asset_type, 0.0) + equity
-
-            positions.append(
-                PositionResponse(
-                    ticker=ticker,
-                    tipo_ativo=asset_type,
-                    quantidade=qty,
-                    preco_medio=avg_price,
-                    preco_atual=current_price,
-                    valor_total_custo=round(cost, 2),
-                    valor_total_atual=round(equity, 2),
-                    lucro_prejuizo=round(pl, 2),
-                    lucro_prejuizo_pct=round(pl_pct, 2),
-                )
+                        cached = await self.redis.get(f"quote:{ticker}")
+                        if cached:
+                            quote = json.loads(cached, parse_float=Decimal)
+                            price = decimal_value(quote.get("price"), positive=True)
+                            source = quote.get("source")
+                            source = source.strip() if isinstance(source, str) else None
+                            fact_time = quote.get("as_of")
+                            as_of = datetime.fromisoformat(fact_time.replace("Z", "+00:00")) if fact_time else None
+                            age = (datetime.now(timezone.utc) - as_of).total_seconds() if as_of and as_of.tzinfo else None
+                            # Price age is measured from the fact time, never from its collection time.
+                            # This conservative policy is not an exchange-session calendar.
+                            status = "valid" if age is not None and 0 <= age <= 300 and source else "stale"
+                    except (ValueError, TypeError, AttributeError):
+                        price, as_of, source, status = None, None, None, "missing"
+                    except aioredis.RedisError:
+                        logger.warning("Portfolio quote cache unavailable")
+                equity = qty * price if price is not None and status == "valid" else None
+                pl = equity - cost if equity is not None else None
+                asset_type = str(r["tipo_ativo"])
+                if equity is not None:
+                    priced_positions += 1
+                    covered_equity += equity
+                    allocation[asset_type] = allocation.get(asset_type, Decimal(0)) + equity
+                positions.append(PositionResponse(
+                    ticker=ticker, tipo_ativo=asset_type, quantidade=qty, preco_medio=avg_price,
+                    preco_atual=price, price_status=status, price_as_of=as_of, price_source=source,
+                    valor_total_custo=money(cost), valor_total_atual=money(equity) if equity is not None else None,
+                    lucro_prejuizo=money(pl) if pl is not None else None,
+                    lucro_prejuizo_pct=money(pl / cost * 100) if pl is not None and cost > 0 else None,
+                ))
+            complete = priced_positions == len(positions)
+            # Allocation weights are portfolio weights only when the entire portfolio is priced.
+            if complete and covered_equity > 0:
+                for position in positions:
+                    position.peso_pct = money(position.valor_total_atual / covered_equity * 100)
+                allocation = {key: money(value / covered_equity * 100) for key, value in allocation.items()}
+            else:
+                allocation = {}
+            profit_loss = covered_equity - total_cost if complete else None
+            return PortfolioSummaryResponse(
+                wallet_id=str(wallet_id), total_cost=money(total_cost),
+                total_equity=money(covered_equity) if complete else None,
+                profit_loss=money(profit_loss) if profit_loss is not None else None,
+                profit_loss_pct=money(profit_loss / total_cost * 100) if complete and total_cost > 0 else None,
+                covered_equity=money(covered_equity), priced_positions=priced_positions, total_positions=len(positions),
+                price_coverage_pct=money(Decimal(priced_positions) / len(positions) * 100) if positions else Decimal(100),
+                positions=positions, allocation_by_type=allocation,
             )
-
-        if total_equity > 0:
-            for p in positions:
-                p.peso_pct = round(p.valor_total_atual / total_equity * 100.0, 2)
-            for k in allocation:
-                allocation[k] = round(allocation[k] / total_equity * 100.0, 2)
-
-        profit_loss = total_equity - total_cost
-        profit_loss_pct = (profit_loss / total_cost * 100.0) if total_cost > 0 else 0.0
-
-        return PortfolioSummaryResponse(
-            wallet_id=str(wallet_id),
-            total_cost=round(total_cost, 2),
-            total_equity=round(total_equity, 2),
-            profit_loss=round(profit_loss, 2),
-            profit_loss_pct=round(profit_loss_pct, 2),
-            positions=positions,
-            allocation_by_type=allocation,
-        )

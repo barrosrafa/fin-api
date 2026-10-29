@@ -62,6 +62,7 @@ class BenchmarkSimulationData(BaseModel):
 
 
 class SimulatePortfolioResponse(BaseModel):
+    assumptions: List[str] = Field(default_factory=list)
     simulationId: Optional[str] = None
     benchmark: BenchmarkSimulationData
     portfolios: List[PortfolioSimulationResultItem] = Field(default_factory=list)

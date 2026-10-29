@@ -37,10 +37,9 @@ class StockService:
         db_session: Optional[AsyncSession] = None,
     ) -> StockValuationResponse:
         t = ticker.upper()
-        current_price = 38.45 if t == "PETR4" else 62.10
-        lpa = 8.12
-        vpa = 33.50
-        dpa_medio = 4.25
+        if db_session is None:
+            raise HTTPException(status_code=503, detail="Valuation data unavailable")
+        current_price = lpa = vpa = dpa_medio = None
         name = "Petróleo Brasileiro S.A. Petrobras" if t == "PETR4" else f"Companhia {t}"
         id_ativo = None
         id_emissor = None
@@ -69,6 +68,8 @@ class StockService:
                 id_emissor = asset_row["id_emissor"]
                 name = asset_row["nome"]
 
+            if not asset_row:
+                raise HTTPException(status_code=404, detail=f"Stock ticker '{t}' not found")
             # 2. Fetch Latest Quote & Fundamentals
             if id_ativo is not None:
                 quote_stmt = text(
@@ -91,13 +92,15 @@ class StockService:
                 if q_row:
                     if q_row["preco_fechamento"] is not None and float(q_row["preco_fechamento"]) > 0:
                         current_price = float(q_row["preco_fechamento"])
-                    if q_row["lpa"] is not None and float(q_row["lpa"]) > 0:
+                    if q_row["lpa"] is not None:
                         lpa = float(q_row["lpa"])
-                    if q_row["vpa"] is not None and float(q_row["vpa"]) > 0:
+                    if q_row["vpa"] is not None:
                         vpa = float(q_row["vpa"])
-                    if q_row["dividend_yield"] is not None:
+                    if q_row["dividend_yield"] is not None and current_price is not None:
                         dpa_medio = (float(q_row["dividend_yield"]) / 100.0) * current_price
 
+                if any(value is None or not math.isfinite(value) for value in (current_price, lpa, vpa, dpa_medio)):
+                    raise HTTPException(status_code=503, detail="Valuation inputs incomplete")
                 # 3. Fetch Checklist from DB
                 chk_stmt = text(
                     """
@@ -168,16 +171,12 @@ class StockService:
                 )
                 dre_res = await db_session.execute(dre_stmt, {"id_emissor": id_emissor})
                 for row in dre_res.mappings().all():
-                    rec = float(row["receita_liquida"] or 0)
-                    ebitda = float(row["ebitda"] or 0)
-                    ebit = float(row["ebit"] or 0)
-                    lucro = float(row["lucro_liquido"] or 0)
-                    cogs = rec - (rec * 0.55)
-                    gross = rec - cogs
-                    op_exp = gross - ebit
-                    fin_res = -(rec * 0.03)
-                    taxes = -(lucro * 0.15)
-                    net_margin = round((lucro / rec) * 100, 2) if rec > 0 else 0.0
+                    rec = float(row["receita_liquida"]) if row["receita_liquida"] is not None else None
+                    ebitda = float(row["ebitda"]) if row["ebitda"] is not None else None
+                    ebit = float(row["ebit"]) if row["ebit"] is not None else None
+                    lucro = float(row["lucro_liquido"]) if row["lucro_liquido"] is not None else None
+                    cogs = gross = op_exp = fin_res = taxes = None
+                    net_margin = round((lucro / rec) * 100, 2) if rec is not None and rec > 0 and lucro is not None else None
                     dre_items.append(
                         DREItemResponse(
                             year=row["yr"],
@@ -207,105 +206,29 @@ class StockService:
             ai_res = await db_session.execute(ai_stmt, {"ticker": t})
             ai_row = ai_res.mappings().first()
             if ai_row:
-                conf = float(ai_row["key_highlights"].get("confidence_score", 90))
+                conf = ai_row["key_highlights"].get("confidence_score")
                 ai_verdict = AIVerdictResponse(
                     ticker=t,
-                    sentiment=ai_row["ai_sentiment"] or "BULLISH",
+                    sentiment=ai_row["ai_sentiment"] or "UNKNOWN",
                     confidenceScore=conf,
                     executiveSummary=ai_row["ai_summary"] or "",
-                    swot={
-                        "strengths": [
-                            "Liderança absoluta de mercado e margens operacionais elevadas",
-                            "Geração robusta de Fluxo de Caixa Livre e baixo lifting cost",
-                            "Histórico consistente de distribuição de proventos",
-                        ],
-                        "weaknesses": [
-                            "Exposição a ciclos internacionais de preços de commodities",
-                            "Sensibilidade a diretrizes regulatórias e fiscais",
-                        ],
-                        "opportunities": [
-                            "Expansão contínua em ativos de alta produtividade (Pré-Sal)",
-                            "Investimentos estratégicos em eficiência energética e transição",
-                        ],
-                        "threats": [
-                            "Flutuações macroeconômicas globais e volatilidade cambial",
-                            "Eventuais litígios tributários ou judiciais",
-                        ],
-                    },
+                    swot=ai_row["key_highlights"].get("swot", {}),
                     anomaliesDetected=[],
                     lastAnalyzedDoc=ai_row["title"],
                     timestamp=ai_row["retrieved_at"].strftime("%d/%m/%Y %H:%M"),
                 )
 
-        # Fallback for checklist if empty
-        if not checklist_items:
-            checklist_items = [
-                StockChecklistItem(
-                    id="c1",
-                    title="Histórico de Listagem > 5 Anos",
-                    pillar="Histórico & Governança",
-                    passed=True,
-                    metric_value="> 10 anos",
-                    target_value="> 5 anos",
-                    explanation="Empresa madura e estabelecida com décadas de negociação em bolsa.",
-                ),
-                StockChecklistItem(
-                    id="c2",
-                    title="Lucro nos Últimos 5 Anos",
-                    pillar="Rentabilidade",
-                    passed=True,
-                    metric_value="5/5 anos positivos",
-                    target_value="5/5 anos",
-                    explanation="Demonstra resiliência operacional sem registrar prejuízo nos últimos exercícios.",
-                ),
-                StockChecklistItem(
-                    id="c3",
-                    title="ROE Superior a 10%",
-                    pillar="Eficiência",
-                    passed=True,
-                    metric_value=f"{round((lpa / vpa) * 100, 1) if vpa > 0 else 15}%",
-                    target_value="> 10.0%",
-                    explanation="Capacidade sólida de rentabilizar o patrimônio líquido dos acionistas.",
-                ),
-                StockChecklistItem(
-                    id="c4",
-                    title="Dívida Líquida / EBITDA < 3.0x",
-                    pillar="Endividamento",
-                    passed=True,
-                    metric_value="0.85x",
-                    target_value="< 3.0x",
-                    explanation="Alavancagem financeira extremamente controlada e segura.",
-                ),
-            ]
-
         # Valuation calculations
-        graham_fair_value = math.sqrt(22.5 * lpa * vpa) if lpa > 0 and vpa > 0 else 0.0
-        graham_upside = round(((graham_fair_value / current_price) - 1.0) * 100, 2) if current_price > 0 else 0.0
+        graham_fair_value = math.sqrt(22.5 * lpa * vpa) if lpa > 0 and vpa > 0 else None
+        graham_upside = round(((graham_fair_value / current_price) - 1.0) * 100, 2) if current_price > 0 and graham_fair_value is not None else None
 
-        bazin_ceiling = round(dpa_medio / 0.06, 2) if dpa_medio > 0 else 0.0
-        bazin_upside = round(((bazin_ceiling / current_price) - 1.0) * 100, 2) if current_price > 0 else 0.0
+        bazin_ceiling = round(dpa_medio / 0.06, 2) if dpa_medio > 0 else None
+        bazin_upside = round(((bazin_ceiling / current_price) - 1.0) * 100, 2) if current_price > 0 and bazin_ceiling is not None else None
 
-        dcf_value = round(current_price * 1.25, 2)
-        dcf_upside = round(((dcf_value / current_price) - 1.0) * 100, 2)
+        dcf_value = None
+        dcf_upside = None
 
-        # Technical indicators calculation
-        technical = TechnicalIndicatorsResponse(
-            ticker=t,
-            timeframe="DIARIO",
-            rsi14=58.4,
-            macd="Cruzamento de Alta Confirmado (+0.42)",
-            stochastic=62.8,
-            bollingerWidth=8.45,
-            pivotPoint=round(current_price, 2),
-            support1=round(current_price * 0.95, 2),
-            support2=round(current_price * 0.91, 2),
-            resistance1=round(current_price * 1.05, 2),
-            resistance2=round(current_price * 1.09, 2),
-            summarySignal="COMPRA",
-            buySignalsCount=8,
-            neutralSignalsCount=2,
-            sellSignalsCount=1,
-        )
+        technical = None
 
         return StockValuationResponse(
             ticker=t,
@@ -314,38 +237,20 @@ class StockService:
             lpa=round(lpa, 2),
             vpa=round(vpa, 2),
             dpa_medio=round(dpa_medio, 2),
-            graham_fair_value=round(graham_fair_value, 2),
+            graham_fair_value=round(graham_fair_value, 2) if graham_fair_value is not None else None,
             graham_upside_pct=graham_upside,
             bazin_ceiling_price=bazin_ceiling,
             bazin_upside_pct=bazin_upside,
             gordon_fair_value=round(dpa_medio * 1.04 / (0.12 - 0.04), 2) if dpa_medio > 0 else None,
             dcf_intrinsic_value=dcf_value,
             dcf_upside_pct=dcf_upside,
-            margin_of_safety_pct=graham_upside,
+            margin_of_safety_pct=round((graham_fair_value - current_price) / graham_fair_value * 100, 2) if graham_fair_value else None,
             checklist=checklist_items,
             dre_history=dre_items,
             dividends=dividend_items,
             technical=technical,
             ai_verdict=ai_verdict,
-            revenue_by_segment=[
-                StockRevenueSegment(segment_name="Diesel e Gasolina", revenue_amount=155000000000.0, percentage=48.2),
-                StockRevenueSegment(segment_name="Gás Natural e Energia", revenue_amount=48000000000.0, percentage=15.0),
-                StockRevenueSegment(segment_name="Exportação de Óleo Cru", revenue_amount=82000000000.0, percentage=25.5),
-                StockRevenueSegment(segment_name="Derivados Especiais e Outros", revenue_amount=36000000000.0, percentage=11.3),
-            ],
-            revenue_by_geography=[
-                StockRevenueSegment(segment_name="Mercado Interno (Brasil)", revenue_amount=245000000000.0, percentage=76.3),
-                StockRevenueSegment(segment_name="Exportações (Ásia & Europa)", revenue_amount=76000000000.0, percentage=23.7),
-            ],
-            consensus=StockConsensusEstimates(
-                target_price_min=round(current_price * 1.05, 2),
-                target_price_avg=round(current_price * 1.25, 2),
-                target_price_max=round(current_price * 1.45, 2),
-                recommendation="COMPRA",
-                analysts_count=14,
-                forecast_2026={"lpa": round(lpa * 1.08, 2), "ebitda": 220000000000.0, "dy_pct": 12.5},
-                forecast_2027={"lpa": round(lpa * 1.15, 2), "ebitda": 235000000000.0, "dy_pct": 11.8},
-            ),
+            revenue_by_segment=[], revenue_by_geography=[], consensus=None,
         )
 
     async def get_stock_details(
@@ -354,20 +259,20 @@ class StockService:
         db_session: Optional[AsyncSession] = None,
     ) -> StockDetailsResponse:
         t = ticker.upper()
-        name = f"Companhia {t}"
+        name = t
         tipo = "PN" if t.endswith("4") else ("ON" if t.endswith("3") else "UNT")
         classe_acao = "PN" if t.endswith("4") else "ON"
         sector = "Geral"
         subsector = "Geral"
         segmento = "Geral"
-        current_price = 38.45 if t == "PETR4" else (32.80 if t == "ITUB4" else 50.00)
+        current_price = None
         data_cotacao = None
-        min_52 = current_price * 0.78
-        max_52 = current_price * 1.32
-        vol_2m = 450000000.0
-        val_mercado = 280000000000.0
-        val_firma = 310000000000.0
-        num_acoes = 8000000000
+        min_52 = None
+        max_52 = None
+        vol_2m = None
+        val_mercado = None
+        val_firma = None
+        num_acoes = None
         is_financial = t in {"ITUB4", "ITUB3", "BBDC4", "BBDC3", "BBAS3", "SANB11", "BPAC11"}
 
         if is_financial:
@@ -440,13 +345,13 @@ class StockService:
             sector=sector,
             subsector=subsector,
             segmento=segmento,
-            current_price=round(current_price, 2),
+            current_price=round(current_price, 2) if current_price is not None else None,
             data_cotacao=data_cotacao,
-            min_52_semanas=round(min_52, 2) if min_52 else None,
-            max_52_semanas=round(max_52, 2) if max_52 else None,
-            volume_medio_2m=round(vol_2m, 2) if vol_2m else None,
-            valor_mercado=round(val_mercado, 2) if val_mercado else None,
-            valor_firma=round(val_firma, 2) if val_firma else None,
+            min_52_semanas=round(min_52, 2) if min_52 is not None else None,
+            max_52_semanas=round(max_52, 2) if max_52 is not None else None,
+            volume_medio_2m=round(vol_2m, 2) if vol_2m is not None else None,
+            valor_mercado=round(val_mercado, 2) if val_mercado is not None else None,
+            valor_firma=round(val_firma, 2) if val_firma is not None else None,
             numero_acoes=num_acoes,
             is_financial_institution=is_financial,
         )
@@ -459,26 +364,26 @@ class StockService:
         t = ticker.upper()
         is_financial = t in {"ITUB4", "ITUB3", "BBDC4", "BBDC3", "BBAS3", "SANB11", "BPAC11"}
 
-        pl = 8.5 if not is_financial else 9.2
-        pvp = 1.45 if not is_financial else 1.65
-        pebit = 4.2 if not is_financial else None
-        psr = 1.1 if not is_financial else None
-        p_ativos = 0.65 if not is_financial else 0.12
-        p_cap_giro = 3.8 if not is_financial else None
-        p_ativo_circ_liq = -1.2 if not is_financial else None
-        dy = 7.5 if not is_financial else 6.8
-        ev_ebitda = 3.4 if not is_financial else None
-        ev_ebit = 4.8 if not is_financial else None
-        margem_bruta = 45.2 if not is_financial else None
-        margem_ebit = 22.1 if not is_financial else None
-        margem_liquida = 15.4 if not is_financial else 18.2
-        roic = 16.5 if not is_financial else None
-        roe = 17.8 if not is_financial else 21.4
-        liq_corrente = 1.8 if not is_financial else None
-        div_bruta_pl = 0.65 if not is_financial else None
-        giro_ativos = 0.55 if not is_financial else None
-        lpa = 4.25
-        vpa = 24.50
+        pl = None
+        pvp = None
+        pebit = None
+        psr = None
+        p_ativos = None
+        p_cap_giro = None
+        p_ativo_circ_liq = None
+        dy = None
+        ev_ebitda = None
+        ev_ebit = None
+        margem_bruta = None
+        margem_ebit = None
+        margem_liquida = None
+        roic = None
+        roe = None
+        liq_corrente = None
+        div_bruta_pl = None
+        giro_ativos = None
+        lpa = None
+        vpa = None
 
         if db_session is not None:
             stmt = text(
@@ -510,26 +415,26 @@ class StockService:
                     return float(v) if v is not None else None
 
                 if row.get("id_indicador") is not None:
-                    pl = _f("pl") or pl
-                    pvp = _f("pvp") or pvp
-                    pebit = (_f("p_ebit") or pebit) if not is_financial else None
-                    psr = (_f("psr") or psr) if not is_financial else None
-                    p_ativos = _f("p_ativo") or p_ativos
-                    p_cap_giro = (_f("p_cap_giro") or p_cap_giro) if not is_financial else None
-                    p_ativo_circ_liq = (_f("p_ativo_circ_liq") or p_ativo_circ_liq) if not is_financial else None
-                    dy = _f("dividend_yield") or dy
-                    ev_ebitda = (_f("ev_ebitda") or ev_ebitda) if not is_financial else None
-                    ev_ebit = (_f("ev_ebit") or ev_ebit) if not is_financial else None
-                    margem_bruta = (_f("margem_bruta") or margem_bruta) if not is_financial else None
-                    margem_ebit = (_f("margem_ebit") or margem_ebit) if not is_financial else None
-                    margem_liquida = _f("margem_liquida") or margem_liquida
-                    roic = (_f("roic") or roic) if not is_financial else None
-                    roe = _f("roe") or roe
-                    liq_corrente = (_f("liquidez_corrente") or liq_corrente) if not is_financial else None
-                    div_bruta_pl = (_f("divida_bruta_pl") or div_bruta_pl) if not is_financial else None
-                    giro_ativos = (_f("giro_ativo") or giro_ativos) if not is_financial else None
-                    lpa = _f("lpa") or lpa
-                    vpa = _f("vpa") or vpa
+                    pl = _f("pl")
+                    pvp = _f("pvp")
+                    pebit = _f("p_ebit") if not is_financial else None
+                    psr = _f("psr") if not is_financial else None
+                    p_ativos = _f("p_ativo")
+                    p_cap_giro = _f("p_cap_giro") if not is_financial else None
+                    p_ativo_circ_liq = _f("p_ativo_circ_liq") if not is_financial else None
+                    dy = _f("dividend_yield")
+                    ev_ebitda = _f("ev_ebitda") if not is_financial else None
+                    ev_ebit = _f("ev_ebit") if not is_financial else None
+                    margem_bruta = _f("margem_bruta") if not is_financial else None
+                    margem_ebit = _f("margem_ebit") if not is_financial else None
+                    margem_liquida = _f("margem_liquida")
+                    roic = _f("roic") if not is_financial else None
+                    roe = _f("roe")
+                    liq_corrente = _f("liquidez_corrente") if not is_financial else None
+                    div_bruta_pl = _f("divida_bruta_pl") if not is_financial else None
+                    giro_ativos = _f("giro_ativo") if not is_financial else None
+                    lpa = _f("lpa")
+                    vpa = _f("vpa")
 
         return StockMultiplesResponse(
             ticker=t,
@@ -563,45 +468,25 @@ class StockService:
         t = ticker.upper()
         is_financial = t in {"ITUB4", "ITUB3", "BBDC4", "BBDC3", "BBAS3", "SANB11", "BPAC11"}
 
-        data_balanco = "2026-06-30"
-        if is_financial:
-            ativo_total = 2_850_000_000_000.0
-            disponibilidades = 145_000_000_000.0
-            ativo_circulante = None
-            divida_bruta = None
-            divida_liquida = None
-            patrimonio_liquido = 185_000_000_000.0
-            receita_liquida_12m = None
-            receita_liquida_3m = None
-            ebit_12m = None
-            ebit_3m = None
-            lucro_liquido_12m = 35_800_000_000.0
-            lucro_liquido_3m = 9_650_000_000.0
-            carteira_credito = 1_280_000_000_000.0
-            depositos = 1_120_000_000_000.0
-            res_intermed_12m = 68_500_000_000.0
-            res_intermed_3m = 18_200_000_000.0
-            rec_serv_12m = 49_100_000_000.0
-            rec_serv_3m = 12_800_000_000.0
-        else:
-            ativo_total = 380_000_000_000.0
-            disponibilidades = 42_000_000_000.0
-            ativo_circulante = 98_000_000_000.0
-            divida_bruta = 115_000_000_000.0
-            divida_liquida = 73_000_000_000.0
-            patrimonio_liquido = 165_000_000_000.0
-            receita_liquida_12m = 245_000_000_000.0
-            receita_liquida_3m = 63_000_000_000.0
-            ebit_12m = 58_000_000_000.0
-            ebit_3m = 14_800_000_000.0
-            lucro_liquido_12m = 42_000_000_000.0
-            lucro_liquido_3m = 10_500_000_000.0
-            carteira_credito = None
-            depositos = None
-            res_intermed_12m = None
-            res_intermed_3m = None
-            rec_serv_12m = None
-            rec_serv_3m = None
+        data_balanco = None
+        ativo_total = None
+        disponibilidades = None
+        ativo_circulante = None
+        divida_bruta = None
+        divida_liquida = None
+        patrimonio_liquido = None
+        receita_liquida_12m = None
+        receita_liquida_3m = None
+        ebit_12m = None
+        ebit_3m = None
+        lucro_liquido_12m = None
+        lucro_liquido_3m = None
+        carteira_credito = None
+        depositos = None
+        res_intermed_12m = None
+        res_intermed_3m = None
+        rec_serv_12m = None
+        rec_serv_3m = None
 
         if db_session is not None:
             stmt = text(
@@ -630,25 +515,25 @@ class StockService:
                     is_financial = bool(row["is_instituicao_financeira"])
 
                 data_balanco = row["dt_balanco"] or data_balanco
-                ativo_total = _f("ativo_total") or ativo_total
-                disponibilidades = _f("disponibilidades") or disponibilidades
-                ativo_circulante = (_f("ativo_circulante") or ativo_circulante) if not is_financial else None
-                divida_bruta = (_f("divida_bruta") or divida_bruta) if not is_financial else None
-                divida_liquida = (_f("divida_liquida") or divida_liquida) if not is_financial else None
-                patrimonio_liquido = _f("patrimonio_liquido") or patrimonio_liquido
-                receita_liquida_12m = (_f("receita_liquida_12m") or receita_liquida_12m) if not is_financial else None
-                receita_liquida_3m = (_f("receita_liquida_3m") or receita_liquida_3m) if not is_financial else None
-                ebit_12m = (_f("ebit_12m") or ebit_12m) if not is_financial else None
-                ebit_3m = (_f("ebit_3m") or ebit_3m) if not is_financial else None
-                lucro_liquido_12m = _f("lucro_liquido_12m") or lucro_liquido_12m
-                lucro_liquido_3m = _f("lucro_liquido_3m") or lucro_liquido_3m
+                ativo_total = _f("ativo_total")
+                disponibilidades = _f("disponibilidades")
+                ativo_circulante = _f("ativo_circulante") if not is_financial else None
+                divida_bruta = _f("divida_bruta") if not is_financial else None
+                divida_liquida = _f("divida_liquida") if not is_financial else None
+                patrimonio_liquido = _f("patrimonio_liquido")
+                receita_liquida_12m = _f("receita_liquida_12m") if not is_financial else None
+                receita_liquida_3m = _f("receita_liquida_3m") if not is_financial else None
+                ebit_12m = _f("ebit_12m") if not is_financial else None
+                ebit_3m = _f("ebit_3m") if not is_financial else None
+                lucro_liquido_12m = _f("lucro_liquido_12m")
+                lucro_liquido_3m = _f("lucro_liquido_3m")
 
-                carteira_credito = (_f("carteira_credito") or carteira_credito) if is_financial else None
-                depositos = (_f("depositos_totais") or depositos) if is_financial else None
-                res_intermed_12m = (_f("resultado_intermediacao_12m") or res_intermed_12m) if is_financial else None
-                res_intermed_3m = (_f("resultado_intermediacao_3m") or res_intermed_3m) if is_financial else None
-                rec_serv_12m = (_f("receita_servicos_12m") or rec_serv_12m) if is_financial else None
-                rec_serv_3m = (_f("receita_servicos_3m") or rec_serv_3m) if is_financial else None
+                carteira_credito = _f("carteira_credito") if is_financial else None
+                depositos = _f("depositos_totais") if is_financial else None
+                res_intermed_12m = _f("resultado_intermediacao_12m") if is_financial else None
+                res_intermed_3m = _f("resultado_intermediacao_3m") if is_financial else None
+                rec_serv_12m = _f("receita_servicos_12m") if is_financial else None
+                rec_serv_3m = _f("receita_servicos_3m") if is_financial else None
 
         return StockFinancialsResponse(
             ticker=t,

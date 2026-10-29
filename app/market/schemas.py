@@ -58,7 +58,7 @@ class DailyQuoteItem(BaseModel):
     close: float
     close_adjusted: float
     volume: float
-    pct_change: float
+    pct_change: Optional[float] = None
     num_trades: Optional[int] = None
     corporate_events: Optional[str] = None
 
@@ -86,7 +86,7 @@ class BenchmarkItem(BaseModel):
     name: str
     ticker: str
     value: float
-    change: float
+    change: Optional[float] = None
     sparkline: List[float] = Field(default_factory=list)
 
 

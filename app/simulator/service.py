@@ -1,4 +1,5 @@
 import math
+from fastapi import HTTPException
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional
 from sqlalchemy import text
@@ -19,6 +20,7 @@ class SimulatorService:
         self.db = db_session
 
     async def simulate(self, request: SimulatePortfolioRequest) -> SimulatePortfolioResponse:
+        assumptions = ["Taxas administrativas ausentes usam hipótese de 0,30% a.a.; preços ausentes entre observações usam o último preço conhecido."]
         start_dt = datetime.strptime(request.startDate, "%Y-%m-%d").date()
         end_dt = datetime.strptime(request.endDate, "%Y-%m-%d").date()
         total_days = max(1, (end_dt - start_dt).days)
@@ -41,14 +43,12 @@ class SimulatorService:
             cdi_res = await self.db.execute(cdi_stmt, {"start_dt": start_dt, "end_dt": end_dt})
             for r in cdi_res.mappings().all():
                 d = r["data_referencia"]
-                ann_rate = float(r["valor"]) / 100.0 if r["valor"] is not None else 0.115
+                if r["valor"] is None:
+                    continue
+                ann_rate = float(r["valor"]) / 100.0
                 cdi_daily_rates[d] = (1.0 + ann_rate) ** (1.0 / 252.0) - 1.0
                 if r["valor_normalizado"] is not None:
                     cdi_norm_values[d] = float(r["valor_normalizado"])
-
-        # Fallback CDI rate if DB table empty
-        fallback_cdi_annual = 0.1125
-        fallback_cdi_daily = (1.0 + fallback_cdi_annual) ** (1.0 / 252.0) - 1.0
 
         # -------------------------------------------------------------
         # 2. Fetch real historical quotes for all assets in portfolios
@@ -78,12 +78,9 @@ class SimulatorService:
 
         trading_dates = sorted(list(all_trading_dates_set))
         if not trading_dates:
-            # Synthetic business days if no trading days found in interval
-            curr = start_dt
-            while curr <= end_dt:
-                if curr.weekday() < 5:
-                    trading_dates.append(curr)
-                curr += timedelta(days=1)
+            raise HTTPException(status_code=503, detail="Historical price series unavailable")
+        if any(day not in cdi_daily_rates for day in trading_dates):
+            raise HTTPException(status_code=503, detail="CDI history incomplete for the requested dates")
 
         # -------------------------------------------------------------
         # 3. Benchmark (CDI) Real Backtest
@@ -95,7 +92,7 @@ class SimulatorService:
 
         # Step through trading dates
         for idx, d in enumerate(trading_dates):
-            rate = cdi_daily_rates.get(d, fallback_cdi_daily)
+            rate = cdi_daily_rates[d]
             cdi_balance *= (1.0 + rate)
             cdi_twr *= (1.0 + rate)
 
@@ -171,13 +168,10 @@ class SimulatorService:
             # Forward-fill prices for each asset
             last_known_price: Dict[str, float] = {}
             for t in allocations:
-                # Find first available price
-                for d in trading_dates:
-                    if d in prices_by_ticker_date[t]:
-                        last_known_price[t] = prices_by_ticker_date[t][d]
-                        break
-                if t not in last_known_price:
-                    last_known_price[t] = 100.0
+                first = prices_by_ticker_date[t].get(trading_dates[0])
+                if first is None:
+                    raise HTTPException(status_code=503, detail=f"Initial price unavailable for {t}")
+                last_known_price[t] = first
 
             balance = request.startingAmount
             twr_factor = 1.0
@@ -337,7 +331,8 @@ class SimulatorService:
             )
 
         return SimulatePortfolioResponse(
-            simulationId="sim_real_historical_backtest",
+            simulationId="sim_historical_with_explicit_assumptions",
+            assumptions=assumptions,
             benchmark=benchmark_data,
             portfolios=simulated_portfolios,
         )

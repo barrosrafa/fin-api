@@ -89,26 +89,20 @@ async def refresh_ticker_data_task(
             await redis.publish(f"channel:sync:{normalized_ticker}", json.dumps({"status": "failed"}))
         raise
 
-    # Step 3: Upsert into PostgreSQL 18 / TimescaleDB (market.cotacao_diaria)
-    data_pregao = canonical.collected_at.date() if hasattr(canonical, "collected_at") else datetime.now(timezone.utc).date()
+    # A scrape has a collection instant, not an official trading date or closing price.
+    # Store it as an observation; official EOD ingestion owns cotacao_diaria.
+    observed_at = canonical.collected_at
     db_success = False
 
     if db_factory is not None:
         async with db_factory() as session:
             stmt = text(
                 """
-                INSERT INTO market.cotacao_diaria (
-                    id_ativo, data_pregao, preco_fechamento, variacao_percentual,
-                    volume_total
-                )
+                INSERT INTO market.cotacao_intraday (id_ativo, timestamp, preco_atual, variacao, volume)
                 VALUES (
                     (SELECT id_ativo FROM core.ativo WHERE ticker = :ticker LIMIT 1),
-                    :data_pregao, :price, :change_pct, :volume
+                    :observed_at, :price, :change_pct, :volume
                 )
-                ON CONFLICT (id_ativo, data_pregao) DO UPDATE SET
-                    preco_fechamento = EXCLUDED.preco_fechamento,
-                    variacao_percentual = EXCLUDED.variacao_percentual,
-                    volume_total = EXCLUDED.volume_total
                 """
             )
             try:
@@ -116,7 +110,7 @@ async def refresh_ticker_data_task(
                     stmt,
                     {
                         "ticker": normalized_ticker,
-                        "data_pregao": data_pregao,
+                        "observed_at": observed_at,
                         "price": canonical.price,
                         "change_pct": canonical.change_pct,
                         "volume": canonical.volume,

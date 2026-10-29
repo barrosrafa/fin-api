@@ -1,4 +1,7 @@
 import pytest
+import json
+from decimal import Decimal
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch, MagicMock
 from app.portfolio.service import PortfolioService
 from app.portfolio.schemas import (
@@ -47,14 +50,9 @@ async def test_calculate_average_price_on_buy():
     )
     assert p1 == 35.0
 
-    # Selling 50 does not change average purchase price
-    p2 = PortfolioService.compute_new_average_price(
-        current_qty=200.0,
-        current_avg_price=35.0,
-        new_qty=-50.0,
-        new_price=45.0,
-    )
-    assert p2 == 35.0
+    # This helper models purchases; selling belongs to the explicit sell operation.
+    with pytest.raises(ValueError):
+        PortfolioService.compute_new_average_price(200, 35, -50, 45)
 
 @pytest.mark.asyncio
 async def test_get_portfolio_summary_and_allocation():
@@ -73,7 +71,7 @@ async def test_get_portfolio_summary_and_allocation():
     mock_db.execute = AsyncMock(side_effect=[mock_check, mock_positions])
 
     mock_cache = AsyncMock()
-    mock_cache.get = AsyncMock(side_effect=lambda k: b'{"price": 35.0}' if "PETR4" in k else b'{"price": 170.0}')
+    mock_cache.get = AsyncMock(side_effect=lambda k: json.dumps({"price": "35.0" if "PETR4" in k else "170.0", "source": "fixture", "as_of": datetime.now(timezone.utc).isoformat()}))
 
     service = PortfolioService(redis_client=mock_cache)
     summary = await service.get_portfolio_summary(
@@ -85,4 +83,4 @@ async def test_get_portfolio_summary_and_allocation():
     assert summary.total_equity == 15500.0
     assert summary.total_cost == 14000.0
     assert summary.profit_loss == 1500.0
-    assert summary.profit_loss_pct == pytest.approx(10.71, 0.01)
+    assert summary.profit_loss_pct == Decimal("10.71")

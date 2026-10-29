@@ -34,3 +34,11 @@ async def test_cors_allows_vercel_domains():
             },
         )
         assert res_disallowed.headers.get("access-control-allow-origin") is None
+
+
+@pytest.mark.asyncio
+async def test_browser_can_read_pagination_total_across_origins():
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://test") as client:
+        response = await client.get("/health", headers={"Origin": "http://localhost:3000"})
+        assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+        assert "X-Total-Count" in response.headers["access-control-expose-headers"]

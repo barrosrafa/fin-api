@@ -30,16 +30,16 @@ class StockConsensusEstimates(BaseModel):
 
 class DREItemResponse(BaseModel):
     year: str
-    netRevenue: float
-    cogs: float
-    grossProfit: float
-    operatingExpenses: float
-    ebitda: float
-    ebit: float
-    financialResult: float
-    taxes: float
-    netIncome: float
-    netMarginPct: float
+    netRevenue: Optional[float] = None
+    cogs: Optional[float] = None
+    grossProfit: Optional[float] = None
+    operatingExpenses: Optional[float] = None
+    ebitda: Optional[float] = None
+    ebit: Optional[float] = None
+    financialResult: Optional[float] = None
+    taxes: Optional[float] = None
+    netIncome: Optional[float] = None
+    netMarginPct: Optional[float] = None
 
 
 class DividendItemResponse(BaseModel):
@@ -74,7 +74,7 @@ class TechnicalIndicatorsResponse(BaseModel):
 class AIVerdictResponse(BaseModel):
     ticker: str
     sentiment: str
-    confidenceScore: float
+    confidenceScore: Optional[float] = None
     executiveSummary: str
     swot: Dict[str, List[str]]
     anomaliesDetected: List[str] = Field(default_factory=list)
@@ -89,14 +89,14 @@ class StockValuationResponse(BaseModel):
     lpa: float
     vpa: float
     dpa_medio: float
-    graham_fair_value: float
-    graham_upside_pct: float
-    bazin_ceiling_price: float
-    bazin_upside_pct: float
+    graham_fair_value: Optional[float] = None
+    graham_upside_pct: Optional[float] = None
+    bazin_ceiling_price: Optional[float] = None
+    bazin_upside_pct: Optional[float] = None
     gordon_fair_value: Optional[float] = None
-    dcf_intrinsic_value: float
-    dcf_upside_pct: float
-    margin_of_safety_pct: float
+    dcf_intrinsic_value: Optional[float] = None
+    dcf_upside_pct: Optional[float] = None
+    margin_of_safety_pct: Optional[float] = None
     checklist: List[StockChecklistItem] = Field(default_factory=list)
     dre_history: List[DREItemResponse] = Field(default_factory=list)
     dividends: List[DividendItemResponse] = Field(default_factory=list)
@@ -115,7 +115,7 @@ class StockDetailsResponse(BaseModel):
     sector: Optional[str] = None
     subsector: Optional[str] = None
     segmento: Optional[str] = None
-    current_price: float
+    current_price: Optional[float] = None
     data_cotacao: Optional[str] = None
     min_52_semanas: Optional[float] = None
     max_52_semanas: Optional[float] = None

@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timezone
 from typing import Optional, Any, Dict
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CanonicalQuote(BaseModel):
@@ -13,7 +13,8 @@ class CanonicalQuote(BaseModel):
     dy_pct: Optional[float] = None
     p_vp: Optional[float] = None
     source: str
-    collected_at: datetime = datetime.now(timezone.utc)
+    as_of: Optional[datetime] = None
+    collected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class CanonicalFundamentals(BaseModel):
@@ -29,7 +30,7 @@ class CanonicalFundamentals(BaseModel):
     lucro_por_acao: Optional[float] = None
     valor_patrimonial_por_acao: Optional[float] = None
     source: str
-    collected_at: datetime = datetime.now(timezone.utc)
+    collected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class DataNormalizer:
@@ -75,6 +76,7 @@ class DataNormalizer:
             dy_pct=dy,
             p_vp=p_vp,
             source=source,
+            as_of=raw.get("as_of"),
         )
 
     @classmethod
