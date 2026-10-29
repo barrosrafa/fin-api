@@ -1,4 +1,3 @@
-from typing import Optional
 import redis.asyncio as aioredis
 
 

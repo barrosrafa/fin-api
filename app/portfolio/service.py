@@ -11,12 +11,10 @@ import redis.asyncio as aioredis
 from app.portfolio.schemas import (
     WalletCreate,
     WalletResponse,
-    TransactionCreate,
-    TransactionType,
     PositionResponse,
     PortfolioSummaryResponse,
 )
-from app.core.exceptions import ResourceNotFoundException, FinApiException
+from app.core.exceptions import ResourceNotFoundException
 from app.core.logging import logger
 
 

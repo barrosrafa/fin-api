@@ -1,6 +1,6 @@
 from functools import lru_cache
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +9,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
 
     # Supabase Auth
     SUPABASE_URL: str = "https://example.supabase.co"
-    SUPABASE_JWT_SECRET: str = "test-jwt-secret-key-at-least-32-chars-long"
+    SUPABASE_JWT_SECRET: str = Field(default="test-jwt-secret-key-at-least-32-chars-long", repr=False)
     SUPABASE_JWKS_URL: str = "https://example.supabase.co/auth/v1/.well-known/jwks.json"
 
     # Asaas v3 Billing
@@ -46,6 +47,15 @@ class Settings(BaseSettings):
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
     CIRCUIT_BREAKER_RECOVERY_TIME_SECONDS: int = 600
     ARQ_MAX_JOBS: int = 20
+
+    @model_validator(mode="after")
+    def require_production_jwt_secret(self):
+        if self.ENVIRONMENT == "production" and (
+            self.SUPABASE_JWT_SECRET == "test-jwt-secret-key-at-least-32-chars-long"
+            or len(self.SUPABASE_JWT_SECRET.encode("utf-8")) < 32
+        ):
+            raise ValueError("Production requires an explicitly configured JWT secret of at least 32 bytes")
+        return self
 
 
 @lru_cache

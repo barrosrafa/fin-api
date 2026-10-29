@@ -6,11 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.stocks.schemas import (
     StockValuationResponse,
     StockChecklistItem,
-    StockRevenueSegment,
-    StockConsensusEstimates,
     DREItemResponse,
     DividendItemResponse,
-    TechnicalIndicatorsResponse,
     AIVerdictResponse,
     StockDetailsResponse,
     StockMultiplesResponse,

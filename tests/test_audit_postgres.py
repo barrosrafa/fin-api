@@ -59,7 +59,7 @@ async def test_pool_one_rls_and_concurrent_order_uniqueness(monkeypatch):
         await read(None)
 
         # Apply the actual additive migration twice and race five database clients.
-        migration = Path(__file__).resolve().parents[2] / 'fin/sql/17_orders_idempotency/01_up.sql'
+        migration = Path(os.environ.get('FIN_DB_MIGRATION_PATH', Path(__file__).resolve().parents[2] / 'fin/sql/17_orders_idempotency/01_up.sql'))
         await admin.execute(f'CREATE TABLE {schema}.ordem (id_ordem bigserial PRIMARY KEY, id_carteira uuid NOT NULL)')
         parts = migration.read_text().replace('core.', schema + '.').split('-- Execute outside')
         for _ in range(2):

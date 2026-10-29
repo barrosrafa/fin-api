@@ -2,7 +2,6 @@ import asyncio
 import json
 from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, Response, status, Query
-from fastapi.responses import PlainTextResponse
 from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -24,7 +23,6 @@ from app.market.schemas import (
     IbovPEResponse,
     InvestorFlowResponse,
     EarningsCalendarResponse,
-    DailyQuoteItem,
     QuoteHistoryResponse,
 )
 

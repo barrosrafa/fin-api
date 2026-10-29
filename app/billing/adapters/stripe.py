@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict
 from app.auth.models import User
 from app.billing.contracts import PaymentProvider
 from app.billing.schemas import (

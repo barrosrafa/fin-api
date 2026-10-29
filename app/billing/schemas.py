@@ -1,7 +1,6 @@
 from enum import Enum
 from typing import Optional, Dict, Any
-from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from app.auth.models import SubscriptionTier
 
 

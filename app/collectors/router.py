@@ -1,6 +1,6 @@
 from typing import List, Optional
 from app.collectors.base import BaseCollector
-from app.collectors.normalizer import DataNormalizer, CanonicalQuote, CanonicalFundamentals
+from app.collectors.normalizer import DataNormalizer, CanonicalQuote
 from app.collectors.adapters.status_invest import StatusInvestCollector
 from app.collectors.adapters.fundamentus import FundamentusCollector
 from app.collectors.adapters.investidor10 import Investidor10Collector

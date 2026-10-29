@@ -1,4 +1,4 @@
-name: "CI — fin-api (FastAPI & ARQ Worker)"
+name: "CI — fin-api (isolated database, Redis & Docker)"
 
 on:
   push:
@@ -6,15 +6,53 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 jobs:
   quality-and-test:
-    name: "Lint, Typecheck & Pytest"
+    name: "Ruff, full Pytest suite & Docker"
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: fin_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fin_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://postgres:ci-only-password@127.0.0.1:5432/fin_ci
+      REDIS_URL: redis://127.0.0.1:6379/0
+      TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      TEST_POSTGRES_URL: postgresql://postgres:ci-only-password@127.0.0.1:5432/fin_audit_test
+      FIN_DB_MIGRATION_PATH: ${{ github.workspace }}/fin-db/sql/17_orders_idempotency/01_up.sql
+      API_RATE_LIMIT_PER_MINUTE: "10000"
+      API_RATE_LIMIT_BURST: "10000"
+      PYTHONUNBUFFERED: "1"
     steps:
-      - name: Checkout Code
+      - name: Checkout API
         uses: actions/checkout@v4
+
+      - name: Checkout actual database migration
+        uses: actions/checkout@v4
+        with:
+          repository: barrosrafa/fin-db
+          ref: b27ca2d1eb5362a6a2bc76e0d6600fe6139eb423
+          path: fin-db
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -25,16 +63,38 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install Dependencies
-        run: uv sync --frozen || uv sync
+      - name: Install locked development dependencies
+        run: uv sync --frozen --extra dev
 
-      - name: Run Ruff Lint Check
-        run: uv run ruff check app/
+      - name: Run Ruff correctness checks
+        run: uv run --frozen --extra dev ruff check app/
 
-      - name: Run Pytest Test Suite
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: uv run pytest tests/ -v
+      - name: Load isolated public reference fixture
+        run: |
+          uv run --frozen --extra dev python scripts/load_ci_fixture.py
+          uv run --frozen --extra dev python - <<'PY'
+          import asyncio
+          import os
+          import asyncpg
+          async def prepare():
+              connection = await asyncpg.connect(os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://"))
+              try:
+                  await connection.execute("CREATE DATABASE fin_audit_test")
+              finally:
+                  await connection.close()
+          asyncio.run(prepare())
+          PY
+
+      - name: Run complete test suite including real Redis and PostgreSQL isolation
+        run: uv run --frozen --extra dev pytest tests/ -q --junitxml=reports/pytest.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: reports/pytest.xml
+          if-no-files-found: ignore
 
       - name: Verify Docker Build
         run: docker build -t fin-api:${{ github.sha }} .

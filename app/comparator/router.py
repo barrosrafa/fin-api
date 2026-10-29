@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 import math
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException

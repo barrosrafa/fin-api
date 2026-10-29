@@ -1,5 +1,5 @@
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 import httpx
 from app.auth.models import User, SubscriptionTier
 from app.billing.contracts import PaymentProvider
@@ -9,7 +9,6 @@ from app.billing.schemas import (
     CardHostedSubscriptionResponse,
     WebhookEvent,
 )
-from app.core.exceptions import FinApiException
 from app.core.logging import logger
 
 
@@ -118,7 +117,7 @@ class AsaasPaymentProvider(PaymentProvider):
         user: User,
         plan_id: str,
     ) -> CardHostedSubscriptionResponse:
-        customer_id = await self._get_or_create_customer(user)
+        await self._get_or_create_customer(user)
         link_data = {
             "name": f"Assinatura fin-api {plan_id.upper()}",
             "billingType": "CREDIT_CARD",

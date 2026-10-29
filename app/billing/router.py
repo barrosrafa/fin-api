@@ -1,6 +1,6 @@
 import secrets
-from typing import Annotated, Dict, Any
-from fastapi import APIRouter, Depends, Request, Header, HTTPException, status
+from typing import Annotated
+from fastapi import APIRouter, Depends, Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
@@ -16,9 +16,6 @@ from app.billing.service import BillingService
 from app.billing.schemas import (
     SubscriptionCreate,
     PaymentMethod,
-    PixSubscriptionResponse,
-    BoletoSubscriptionResponse,
-    CardHostedSubscriptionResponse,
 )
 
 router = APIRouter(prefix="/billing", tags=["Billing"])

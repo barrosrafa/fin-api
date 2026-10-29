@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
 from app.billing.schemas import WebhookEvent
-from app.auth.models import SubscriptionTier
 from app.core.logging import logger
 
 

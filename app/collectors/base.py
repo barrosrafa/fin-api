@@ -4,7 +4,6 @@ from typing import Optional, Dict, Any
 import httpx
 from app.core.circuit_breaker import RedisCircuitBreaker
 from app.core.exceptions import CollectorCircuitOpenException
-from app.core.logging import logger
 
 USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",

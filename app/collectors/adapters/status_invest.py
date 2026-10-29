@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from app.collectors.base import BaseCollector
 from app.core.logging import logger
 

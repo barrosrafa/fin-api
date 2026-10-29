@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.etfs.schemas import (
     ETFDetailResponse,
     ETFUnderlyingAsset,
-    ETFFlowPoint,
     ETFDrawdownResponse,
 )
 

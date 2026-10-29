@@ -7,7 +7,7 @@ from app.config import get_settings
 from app.core.exceptions import FinApiException
 from app.core.rate_limit import ApiRateLimitMiddleware
 from app.core.logging import logger
-from app.core.database import close_database_engine, get_async_session
+from app.core.database import close_database_engine
 from app.core.redis import close_redis_client, get_redis_client
 from sqlalchemy import text
 from app.auth.router import router as auth_router
@@ -119,14 +119,14 @@ def create_app() -> FastAPI:
             async with factory() as session:
                 await session.execute(text("SELECT 1"))
             checks["database"] = True
-        except Exception as e:
+        except Exception:
             logger.error("Readiness probe database check failed")
 
         try:
             redis = await get_redis_client()
             if redis and await redis.ping():
                 checks["redis"] = True
-        except Exception as e:
+        except Exception:
             logger.error("Readiness probe redis check failed")
 
         is_ready = all(checks.values())

@@ -1,7 +1,6 @@
-from typing import Annotated, List, Optional
+from typing import Annotated, List
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
@@ -13,7 +12,6 @@ from app.portfolio.service import PortfolioService
 from app.portfolio.schemas import (
     WalletCreate,
     WalletResponse,
-    TransactionCreate,
     PortfolioSummaryResponse,
 )
 

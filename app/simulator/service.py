@@ -1,7 +1,7 @@
 import math
 from fastapi import HTTPException
-from datetime import datetime, date, timedelta
-from typing import List, Dict, Any, Optional
+from datetime import datetime, date
+from typing import List, Dict, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.simulator.schemas import (

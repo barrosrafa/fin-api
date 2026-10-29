@@ -1,10 +1,9 @@
 import hashlib
-import os
 import secrets
 import time
 from typing import Annotated, Optional
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text

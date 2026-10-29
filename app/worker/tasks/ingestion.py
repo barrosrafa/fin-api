@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from sqlalchemy import text
 from app.core.logging import logger
 
@@ -92,7 +92,6 @@ async def refresh_ticker_data_task(
     # A scrape has a collection instant, not an official trading date or closing price.
     # Store it as an observation; official EOD ingestion owns cotacao_diaria.
     observed_at = canonical.collected_at
-    db_success = False
 
     if db_factory is not None:
         async with db_factory() as session:
@@ -117,7 +116,6 @@ async def refresh_ticker_data_task(
                     },
                 )
                 await session.commit()
-                db_success = True
             except Exception as e:
                 logger.error(f"DB upsert failure for {normalized_ticker}: {e}")
                 if redis is not None:
