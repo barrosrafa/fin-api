@@ -2,10 +2,9 @@ from typing import Annotated, Callable, Optional
 from fastapi import Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
 
 from app.config import get_settings, Settings
-from app.core.database import get_async_session
+from app.core.database import get_async_session, bind_tenant
 from app.core.redis import get_redis_client
 from app.core.exceptions import UnauthorizedException, ForbiddenException
 from app.auth.contracts import AuthProvider
@@ -39,10 +38,7 @@ async def get_current_user(
     
     # Enforce PostgreSQL Row-Level Security (RLS) tenant isolation
     if db is not None:
-        await db.execute(
-            text("SET LOCAL app.current_user_id = :user_id"),
-            {"user_id": str(user.id)},
-        )
+        await bind_tenant(db, str(user.id))
     
     return user
 

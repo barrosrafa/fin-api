@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,11 @@ class Settings(BaseSettings):
 
     # Redis (Cache & Queue Broker)
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Direct API protection. Uses the socket peer; forwarded headers are not trusted here.
+    API_RATE_LIMIT_ENABLED: bool = True
+    API_RATE_LIMIT_PER_MINUTE: int = Field(default=120, gt=0)
+    API_RATE_LIMIT_BURST: int = Field(default=200, gt=0)
 
     # Supabase Auth
     SUPABASE_URL: str = "https://example.supabase.co"

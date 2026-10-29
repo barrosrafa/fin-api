@@ -115,6 +115,7 @@ class SupabaseAuthAdapter(AuthProvider):
                 )
                 await db_session.commit()
             except Exception as e:
+                await db_session.rollback()
                 logger.warning(f"JIT user sync fallback: {e}")
 
         # Store in Redis Cache with 1 hour TTL

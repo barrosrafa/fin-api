@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.core.exceptions import FinApiException
+from app.core.rate_limit import ApiRateLimitMiddleware
 from app.core.logging import logger
 from app.core.database import close_database_engine, get_async_session
 from app.core.redis import close_redis_client, get_redis_client
@@ -53,6 +54,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(ApiRateLimitMiddleware, settings=settings)
+
     # CORS Configuration
     allowed_origins = [
         "http://localhost:3000",
@@ -80,6 +83,12 @@ def create_app() -> FastAPI:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Authenticated data and mutation responses must never enter shared caches.
+        if (request.headers.get("authorization") or request.headers.get("cookie")
+                or request.method not in ("GET", "HEAD", "OPTIONS")
+                or request.url.path.startswith(("/api/v1/auth", "/api/v1/portfolio", "/api/v1/billing"))):
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["Pragma"] = "no-cache"
         return response
 
     # Global Exception Handler
@@ -111,14 +120,14 @@ def create_app() -> FastAPI:
                 await session.execute(text("SELECT 1"))
             checks["database"] = True
         except Exception as e:
-            logger.error("Readiness probe database check failed", error=str(e))
+            logger.error("Readiness probe database check failed")
 
         try:
             redis = await get_redis_client()
             if redis and await redis.ping():
                 checks["redis"] = True
         except Exception as e:
-            logger.error("Readiness probe redis check failed", error=str(e))
+            logger.error("Readiness probe redis check failed")
 
         is_ready = all(checks.values())
         status_code = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE

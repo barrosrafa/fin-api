@@ -6,7 +6,38 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     AsyncEngine,
 )
+from sqlalchemy import event, text
+from sqlalchemy.orm import Session
 from app.config import get_settings
+
+# Never persist tenant settings at connection scope. Reapply after every commit/rollback.
+TENANT_SQL = text("""
+    SELECT set_config('app.current_user_id', COALESCE((
+        SELECT id_usuario::text FROM core.usuario
+        WHERE id_externo = :subject OR id_usuario::text = :subject
+        LIMIT 1
+    ), ''), true)
+""")
+
+
+class TenantSession(Session):
+    pass
+
+
+@event.listens_for(TenantSession, "after_begin")
+def _apply_tenant(session, transaction, connection):
+    subject = session.info.get("auth_subject")
+    if subject:
+        connection.execute(TENANT_SQL, {"subject": subject})
+    else:
+        connection.execute(text("SELECT set_config('app.current_user_id', '', true)"))
+
+
+async def bind_tenant(session: AsyncSession, subject: str) -> None:
+    session.info["auth_subject"] = subject
+    # Authentication may already have opened a transaction (JIT sync/cache miss).
+    await session.execute(TENANT_SQL, {"subject": subject})
+
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
@@ -41,6 +72,7 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
         _sessionmaker = async_sessionmaker(
             bind=engine,
             class_=AsyncSession,
+            sync_session_class=TenantSession,
             expire_on_commit=False,
         )
     return _sessionmaker
@@ -52,6 +84,8 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
         finally:
+            await session.rollback()
+            session.info.pop("auth_subject", None)
             await session.close()
 
 
