@@ -846,7 +846,7 @@ class MarketService:
         ticker: str,
         timeframe: str = "1Y",
         adjusted: bool = True,
-        limit: int = 500,
+        limit: Optional[int] = 500,
         offset: int = 0,
         db_session: Optional[AsyncSession] = None,
     ) -> QuoteHistoryResponse:
@@ -860,17 +860,19 @@ class MarketService:
                 data=[],
             )
 
-        days_map = {
-            "1M": 30,
-            "3M": 90,
-            "6M": 180,
-            "1Y": 365,
-            "2Y": 730,
-            "5Y": 1825,
-            "MAX": 3650,
-        }
-        days = days_map.get(timeframe.upper(), 365)
-        start_date = datetime.date.today() - datetime.timedelta(days=days)
+        today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-3))).date()
+        period = timeframe.upper()
+        if period == "MAX":
+            start_date = datetime.date.min
+        elif period in {"1Y", "2Y", "5Y"}:
+            years = int(period[:-1])
+            try:
+                start_date = today.replace(year=today.year - years)
+            except ValueError:  # February 29 in a non-leap target year.
+                start_date = today.replace(year=today.year - years, day=28)
+        else:
+            days = {"1M": 30, "3M": 90, "6M": 180}.get(period, 365)
+            start_date = today - datetime.timedelta(days=days)
 
         stmt = text(
             """

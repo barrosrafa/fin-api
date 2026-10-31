@@ -346,7 +346,7 @@ async def export_ticker_quote_history(
         ticker=ticker,
         timeframe=timeframe,
         adjusted=adjusted,
-        limit=5000,
+        limit=None,
         offset=0,
         db_session=db,
     )
@@ -355,8 +355,9 @@ async def export_ticker_quote_history(
     ]
     for q in res.data:
         ev = q.corporate_events or ""
+        variation = f"{q.pct_change:.2f}%" if q.pct_change is not None else ""
         csv_lines.append(
-            f"{q.date};{q.open:.2f};{q.high:.2f};{q.low:.2f};{q.close:.2f};{q.close_adjusted:.2f};{q.volume:.2f};{q.pct_change:.2f}%;{q.num_trades or ''};{ev}"
+            f"{q.date};{q.open:.2f};{q.high:.2f};{q.low:.2f};{q.close:.2f};{q.close_adjusted:.2f};{q.volume:.2f};{variation};{q.num_trades or ''};{ev}"
         )
     csv_content = "\r\n".join(csv_lines)
     return Response(
