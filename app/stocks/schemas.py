@@ -245,11 +245,11 @@ class DividendMatrixResponse(BaseModel):
 class USEquityItem(BaseModel):
     ticker: str
     name: str
-    price_usd: float
-    price_brl: float
-    ptax_rate: float
+    price_usd: Optional[float] = None
+    price_brl: Optional[float] = None
+    ptax_rate: Optional[float] = None
     pe_ratio: Optional[float] = None
-    dividend_yield_pct: float
+    dividend_yield_pct: Optional[float] = None
     market_cap_usd: Optional[float] = None
     sector: str = "Technology"
 
@@ -258,18 +258,18 @@ class REITItem(BaseModel):
     ticker: str
     name: str
     subtipo_reit: str
-    price_usd: float
-    price_brl: float
-    ptax_rate: float
-    ffo_per_share: float
-    affo_per_share: float
-    p_ffo: float
-    p_affo: float
-    ffo_payout_pct: float
-    occupancy_rate_pct: float
-    gross_dy_pct: float
-    net_dy_brl_pct: float  # With 30% IRS Withholding tax
-    properties_count: int
+    price_usd: Optional[float] = None
+    price_brl: Optional[float] = None
+    ptax_rate: Optional[float] = None
+    ffo_per_share: Optional[float] = None
+    affo_per_share: Optional[float] = None
+    p_ffo: Optional[float] = None
+    p_affo: Optional[float] = None
+    ffo_payout_pct: Optional[float] = None
+    occupancy_rate_pct: Optional[float] = None
+    gross_dy_pct: Optional[float] = None
+    net_dy_brl_pct: Optional[float] = None
+    properties_count: Optional[int] = None
 
 
 

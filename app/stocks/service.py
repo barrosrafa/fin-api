@@ -987,6 +987,13 @@ class StockService:
 
         return items, total_count
 
+    @staticmethod
+    def _source_number(value, *, positive=False):
+        if value is None:
+            return None
+        number = float(value)
+        return number if math.isfinite(number) and (not positive or number > 0) else None
+
     async def get_us_stocks(self, db_session: AsyncSession) -> List[USEquityItem]:
         # Get latest PTAX
         ptax_stmt = text(
@@ -994,14 +1001,14 @@ class StockService:
         )
         ptax_res = await db_session.execute(ptax_stmt)
         ptax_row = ptax_res.scalar()
-        ptax = float(ptax_row) if ptax_row else 5.3526
+        ptax = self._source_number(ptax_row, positive=True)
 
         stmt = text(
             """
             SELECT a.ticker, a.tipo_ativo,
                    COALESCE(ec.nome_empresarial, a.ticker) as nome,
-                   COALESCE(ec.setor, 'Technology') as setor,
-                   COALESCE(cd.preco_fechamento, 185.50) as preco_usd
+                   COALESCE(ec.setor, '') as setor,
+                   cd.preco_fechamento as preco_usd
             FROM core.ativo a
             LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
             LEFT JOIN LATERAL (
@@ -1019,47 +1026,21 @@ class StockService:
 
         items = []
         for r in rows:
-            p_usd = float(r["preco_usd"])
+            p_usd = self._source_number(r["preco_usd"], positive=True)
             items.append(
                 USEquityItem(
                     ticker=r["ticker"],
                     name=r["nome"],
                     price_usd=p_usd,
-                    price_brl=round(p_usd * ptax, 2),
+                    price_brl=round(p_usd * ptax, 2) if p_usd is not None and ptax is not None else None,
                     ptax_rate=ptax,
-                    pe_ratio=28.5 if r["ticker"] == "AAPL" else 33.2,
-                    dividend_yield_pct=0.55 if r["ticker"] == "AAPL" else 0.75,
-                    market_cap_usd=3100000000000.0,
+                    pe_ratio=None,
+                    dividend_yield_pct=None,
+                    market_cap_usd=None,
                     sector=r["setor"],
                 )
             )
 
-        if not items:
-            # Fallback mock for AAPL and MSFT
-            items = [
-                USEquityItem(
-                    ticker="AAPL",
-                    name="Apple Inc.",
-                    price_usd=232.50,
-                    price_brl=round(232.50 * ptax, 2),
-                    ptax_rate=ptax,
-                    pe_ratio=31.2,
-                    dividend_yield_pct=0.52,
-                    market_cap_usd=3550000000000.0,
-                    sector="Tecnologia",
-                ),
-                USEquityItem(
-                    ticker="MSFT",
-                    name="Microsoft Corporation",
-                    price_usd=428.10,
-                    price_brl=round(428.10 * ptax, 2),
-                    ptax_rate=ptax,
-                    pe_ratio=34.8,
-                    dividend_yield_pct=0.72,
-                    market_cap_usd=3180000000000.0,
-                    sector="Tecnologia",
-                ),
-            ]
         return items
 
     async def get_reits(self, db_session: AsyncSession) -> List[REITItem]:
@@ -1068,21 +1049,21 @@ class StockService:
         )
         ptax_res = await db_session.execute(ptax_stmt)
         ptax_row = ptax_res.scalar()
-        ptax = float(ptax_row) if ptax_row else 5.3526
+        ptax = self._source_number(ptax_row, positive=True)
 
         stmt = text(
             """
             SELECT a.ticker,
                    COALESCE(ec.nome_empresarial, a.ticker) as nome,
                    dr.subtipo_reit,
-                   COALESCE(dr.ffo_por_acao, 4.12) as ffo_por_acao,
-                   COALESCE(dr.affo_por_acao, 3.75) as affo_por_acao,
-                   COALESCE(dr.p_ffo, 13.5) as p_ffo,
-                   COALESCE(dr.p_affo, 14.8) as p_affo,
-                   COALESCE(dr.ffo_payout_ratio, 75.0) as ffo_payout,
-                   COALESCE(dr.taxa_ocupacao_pct, 98.2) as ocupacao,
-                   COALESCE(dr.total_propriedades, 12000) as props,
-                   COALESCE(cd.preco_fechamento, 54.20) as preco_usd
+                   dr.ffo_por_acao as ffo_por_acao,
+                   dr.affo_por_acao as affo_por_acao,
+                   dr.p_ffo as p_ffo,
+                   dr.p_affo as p_affo,
+                   dr.ffo_payout_ratio as ffo_payout,
+                   dr.taxa_ocupacao_pct as ocupacao,
+                   dr.total_propriedades as props,
+                   cd.preco_fechamento as preco_usd
             FROM asset_details.detalhe_reit dr
             JOIN core.ativo a ON a.id_ativo = dr.id_ativo
             LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
@@ -1100,66 +1081,27 @@ class StockService:
 
         items = []
         for r in rows:
-            p_usd = float(r["preco_usd"])
-            gross_dy = 5.65 if r["ticker"] == "O" else 3.45
-            net_dy = round(gross_dy * 0.70, 2)  # 30% IRS Withholding tax
+            p_usd = self._source_number(r["preco_usd"], positive=True)
             items.append(
                 REITItem(
                     ticker=r["ticker"],
                     name=r["nome"],
-                    subtipo_reit=r["subtipo_reit"],
+                    subtipo_reit=r["subtipo_reit"] or "",
                     price_usd=p_usd,
-                    price_brl=round(p_usd * ptax, 2),
+                    price_brl=round(p_usd * ptax, 2) if p_usd is not None and ptax is not None else None,
                     ptax_rate=ptax,
-                    ffo_per_share=float(r["ffo_por_acao"]),
-                    affo_per_share=float(r["affo_por_acao"]),
-                    p_ffo=float(r["p_ffo"]),
-                    p_affo=float(r["p_affo"]),
-                    ffo_payout_pct=float(r["ffo_payout"]),
-                    occupancy_rate_pct=float(r["ocupacao"]),
-                    gross_dy_pct=gross_dy,
-                    net_dy_brl_pct=net_dy,
-                    properties_count=int(r["props"]),
+                    ffo_per_share=self._source_number(r["ffo_por_acao"]),
+                    affo_per_share=self._source_number(r["affo_por_acao"]),
+                    p_ffo=self._source_number(r["p_ffo"]),
+                    p_affo=self._source_number(r["p_affo"]),
+                    ffo_payout_pct=self._source_number(r["ffo_payout"]),
+                    occupancy_rate_pct=self._source_number(r["ocupacao"]),
+                    gross_dy_pct=None,
+                    net_dy_brl_pct=None,
+                    properties_count=int(r["props"]) if r["props"] is not None else None,
                 )
             )
 
-        if not items:
-            items = [
-                REITItem(
-                    ticker="O",
-                    name="Realty Income Corporation",
-                    subtipo_reit="Retail Net Lease",
-                    price_usd=53.40,
-                    price_brl=round(53.40 * ptax, 2),
-                    ptax_rate=ptax,
-                    ffo_per_share=4.12,
-                    affo_per_share=3.75,
-                    p_ffo=12.95,
-                    p_affo=14.24,
-                    ffo_payout_pct=76.5,
-                    occupancy_rate_pct=98.7,
-                    gross_dy_pct=5.82,
-                    net_dy_brl_pct=round(5.82 * 0.70, 2),
-                    properties_count=15450,
-                ),
-                REITItem(
-                    ticker="PLD",
-                    name="Prologis Inc.",
-                    subtipo_reit="Industrial Logistics",
-                    price_usd=116.80,
-                    price_brl=round(116.80 * ptax, 2),
-                    ptax_rate=ptax,
-                    ffo_per_share=5.56,
-                    affo_per_share=5.12,
-                    p_ffo=21.0,
-                    p_affo=22.8,
-                    ffo_payout_pct=68.2,
-                    occupancy_rate_pct=97.4,
-                    gross_dy_pct=3.35,
-                    net_dy_brl_pct=round(3.35 * 0.70, 2),
-                    properties_count=5600,
-                ),
-            ]
         return items
 
 

@@ -164,6 +164,27 @@
         }
       }
     },
+    "/api/v1/content/ui-texts": {
+      "get": {
+        "tags": [
+          "Content"
+        ],
+        "summary": "Ui Texts",
+        "operationId": "ui_texts_api_v1_content_ui_texts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/content/feature-flags": {
       "get": {
         "tags": [
@@ -9421,51 +9442,135 @@
             "title": "Subtipo Reit"
           },
           "price_usd": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Price Usd"
           },
           "price_brl": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Price Brl"
           },
           "ptax_rate": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ptax Rate"
           },
           "ffo_per_share": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ffo Per Share"
           },
           "affo_per_share": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Affo Per Share"
           },
           "p_ffo": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "P Ffo"
           },
           "p_affo": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "P Affo"
           },
           "ffo_payout_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ffo Payout Pct"
           },
           "occupancy_rate_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Occupancy Rate Pct"
           },
           "gross_dy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Gross Dy Pct"
           },
           "net_dy_brl_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Net Dy Brl Pct"
           },
           "properties_count": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Properties Count"
           }
         },
@@ -9473,19 +9578,7 @@
         "required": [
           "ticker",
           "name",
-          "subtipo_reit",
-          "price_usd",
-          "price_brl",
-          "ptax_rate",
-          "ffo_per_share",
-          "affo_per_share",
-          "p_ffo",
-          "p_affo",
-          "ffo_payout_pct",
-          "occupancy_rate_pct",
-          "gross_dy_pct",
-          "net_dy_brl_pct",
-          "properties_count"
+          "subtipo_reit"
         ],
         "title": "REITItem"
       },
@@ -9849,6 +9942,8 @@
           },
           "limit": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
             "title": "Limit",
             "default": 100
           }
@@ -11686,15 +11781,36 @@
             "title": "Name"
           },
           "price_usd": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Price Usd"
           },
           "price_brl": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Price Brl"
           },
           "ptax_rate": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ptax Rate"
           },
           "pe_ratio": {
@@ -11709,7 +11825,14 @@
             "title": "Pe Ratio"
           },
           "dividend_yield_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Dividend Yield Pct"
           },
           "market_cap_usd": {
@@ -11732,11 +11855,7 @@
         "type": "object",
         "required": [
           "ticker",
-          "name",
-          "price_usd",
-          "price_brl",
-          "ptax_rate",
-          "dividend_yield_pct"
+          "name"
         ],
         "title": "USEquityItem"
       },
