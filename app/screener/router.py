@@ -16,7 +16,7 @@ class ScreenerQueryRequest(BaseModel):
     max_pvp: Optional[float] = None
     min_roe: Optional[float] = None
     sector: Optional[str] = None
-    limit: int = 100
+    limit: int = Field(default=100, ge=1, le=1000)
 
 
 class ScreenerItemResponse(BaseModel):
@@ -48,6 +48,21 @@ async def query_screener(
     if request.asset_class and request.asset_class not in ("ALL", "TODOS"):
         type_clause = "AND a.tipo_ativo::text = :tipo_ativo"
         params["tipo_ativo"] = request.asset_class
+
+    # Apply quality and user filters before LIMIT; percentage units, no rescaling.
+    filters = ["COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) BETWEEN 0 AND 100"]
+    for field, expression, operator in [
+        ("min_dy", "COALESCE(inf.dividend_yield, df.dividend_yield, 0.0)", ">="),
+        ("max_pl", "inf.pl", "<="),
+        ("max_pvp", "COALESCE(inf.pvp, df.pvp)", "<="),
+        ("min_roe", "inf.roe", ">="),
+        ("sector", "ec.setor", "="),
+    ]:
+        value = getattr(request, field)
+        if value is not None:
+            filters.append(f"{expression} {operator} :{field}")
+            params[field] = value
+    filter_clause = " AND ".join(filters)
 
     stmt = text(
         f"""
@@ -85,6 +100,7 @@ async def query_screener(
         ) df ON TRUE
         WHERE a.tipo_ativo::text IN ('ACAO', 'FII', 'ETF')
         {type_clause}
+        AND {filter_clause}
         ORDER BY cd.volume_total DESC NULLS LAST
         LIMIT :limit;
         """
@@ -99,15 +115,6 @@ async def query_screener(
         pvp = float(r["pvp"]) if r["pvp"] is not None else None
         pl = float(r["pl"]) if r["pl"] is not None else None
         roe = float(r["roe"]) if r["roe"] is not None else None
-
-        if request.min_dy is not None and dy < request.min_dy:
-            continue
-        if request.max_pvp is not None and pvp is not None and pvp > request.max_pvp:
-            continue
-        if request.max_pl is not None and pl is not None and pl > request.max_pl:
-            continue
-        if request.min_roe is not None and roe is not None and roe < request.min_roe:
-            continue
 
         items.append(
             ScreenerItemResponse(
