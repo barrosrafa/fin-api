@@ -8,6 +8,7 @@ from app.core.exceptions import FinApiException
 from app.core.logging import logger
 
 DATASETS = {
+    'ui-texts': ('ui_texts', 'text_key,value,published_at,date_updated'),
     'articles': ('articles', 'id,slug,title,excerpt,body,author_name,category,tags,reading_time_minutes,is_premium,published_at,date_updated'),
     'home': ('home_settings', 'slug,title,subtitle,banner,published_at,date_updated'),
     'navigation': ('navigation', 'slug,label,href,position,published_at,date_updated'),
@@ -27,7 +28,7 @@ class ContentService:
         try:
             async with asyncio.timeout(0.25):
                 raw = await self.redis.get(self.key(dataset, variant))
-            if raw and len(raw) <= 524288:
+            if raw and len(raw) <= 2097152:
                 return json.loads(raw)
         except Exception:
             logger.warning('Editorial cache read unavailable')
@@ -41,23 +42,33 @@ class ContentService:
             if not self.settings.DIRECTUS_URL or not self.settings.DIRECTUS_API_TOKEN:
                 raise RuntimeError('CMS not configured')
             collection, fields = DATASETS[dataset]
-            params = {'fields': fields, 'limit': 100, 'filter[status][_eq]': 'published', 'filter[locale][_eq]': 'pt-BR'}
+            params = {'fields': fields, 'limit': 1000, 'filter[status][_eq]': 'published', 'filter[locale][_eq]': 'pt-BR'}
             if dataset == 'navigation':
-                params['sort'] = 'position'
+                params['sort'] = 'position,id'
+            if dataset == 'ui-texts':
+                params['sort'] = 'text_key'
             if dataset == 'feature-flags':
+                params['sort'] = 'flag_key'
                 params['filter[environment][_eq]'] = self.settings.ENVIRONMENT
             async def fetch(client):
-                response = await client.get(f'{self.settings.DIRECTUS_URL.rstrip("/")}/items/{collection}',
-                    params=params, headers={'Authorization': f'Bearer {self.settings.DIRECTUS_API_TOKEN}'})
-                response.raise_for_status()
-                if len(response.content) > 524288:
-                    raise ValueError('Editorial snapshot exceeds limit')
-                data = response.json()['data']
-                if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
-                    raise ValueError('Invalid CMS contract')
-                # Expose only declared fields, even if an upstream configuration changes.
-                allowed = set(fields.split(','))
-                return [{key: value for key, value in row.items() if key in allowed} for row in data]
+                rows = []
+                size = 0
+                # Bounded pagination: catalogs must not silently stop after 100 records.
+                for page in range(1, 21):
+                    response = await client.get(f'{self.settings.DIRECTUS_URL.rstrip("/")}/items/{collection}',
+                        params={**params, 'page': page}, headers={'Authorization': f'Bearer {self.settings.DIRECTUS_API_TOKEN}'})
+                    response.raise_for_status()
+                    size += len(response.content)
+                    if size > 2097152:
+                        raise ValueError('Editorial snapshot exceeds limit')
+                    data = response.json()['data']
+                    if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+                        raise ValueError('Invalid CMS contract')
+                    allowed = set(fields.split(','))
+                    rows.extend({key: value for key, value in row.items() if key in allowed} for row in data)
+                    if len(data) < 1000:
+                        return rows
+                raise ValueError('Editorial catalog exceeds page limit')
             if self.client:
                 data = await fetch(self.client)
             else:

@@ -44,6 +44,11 @@ async def navigation(service=Depends(content_service)):
     return await service.get('navigation')
 
 
+@router.get('/ui-texts', response_model=ContentEnvelope)
+async def ui_texts(service=Depends(content_service)):
+    return await service.get('ui-texts')
+
+
 @router.get('/feature-flags', response_model=ContentEnvelope)
 async def flags(service=Depends(content_service)):
     return await service.get('feature-flags')

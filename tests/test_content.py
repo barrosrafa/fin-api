@@ -62,3 +62,34 @@ async def test_valid_empty_dataset_is_distinct_from_upstream_failure():
     async with httpx.AsyncClient(transport=httpx.MockTransport(empty)) as client:
         content = await ContentService(settings(), redis, client).get('home')
     assert content['data'] == [] and content['meta']['stale'] is False
+
+
+@pytest.mark.asyncio
+async def test_ui_catalog_paginates_and_keeps_only_declared_fields():
+    pages = []
+    async def respond(request):
+        page = int(request.url.params['page'])
+        pages.append(page)
+        assert request.url.params['sort'] == 'text_key'
+        data = [{'text_key': f'text.{i}', 'value': 'Texto', 'private': 'secret'} for i in range(1000)] if page == 1 else [{'text_key': 'last', 'value': ''}]
+        return httpx.Response(200, json={'data': data})
+    redis = AsyncMock()
+    redis.get.return_value = None
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await ContentService(settings(), redis, client).get('ui-texts')
+    assert pages == [1, 2]
+    assert len(result['data']) == 1001
+    assert result['data'][-1]['value'] == ''
+    assert 'private' not in result['data'][0]
+
+
+@pytest.mark.asyncio
+async def test_false_flag_survives_contract_and_environment_filter():
+    async def respond(request):
+        assert request.url.params['filter[environment][_eq]'] == settings().ENVIRONMENT
+        return httpx.Response(200, json={'data': [{'flag_key': 'route./acoes', 'enabled': False}]})
+    redis = AsyncMock()
+    redis.get.return_value = None
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await ContentService(settings(), redis, client).get('feature-flags')
+    assert result['data'][0]['enabled'] is False
