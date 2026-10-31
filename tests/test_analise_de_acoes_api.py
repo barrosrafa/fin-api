@@ -109,15 +109,21 @@ def test_stocks_us_and_reits():
     assert us_res.status_code == 200
     us_data = us_res.json()
     assert len(us_data) >= 1
-    assert us_data[0]["price_usd"] > 0
-    assert us_data[0]["price_brl"] > 0
+    # Source coverage is optional: missing quotes/FX must remain unavailable.
+    for row in us_data:
+        assert row["price_usd"] is None or row["price_usd"] > 0
+        if row["price_usd"] is None or row["ptax_rate"] is None:
+            assert row["price_brl"] is None
+        else:
+            assert row["price_brl"] == round(row["price_usd"] * row["ptax_rate"], 2)
 
     reits_res = client.get("/api/v1/stocks/reits")
     assert reits_res.status_code == 200
     reits_data = reits_res.json()
     assert len(reits_data) >= 1
     assert "ffo_per_share" in reits_data[0]
-    assert reits_data[0]["net_dy_brl_pct"] < reits_data[0]["gross_dy_pct"]  # 30% IRS tax applied
+    # Neither gross yield nor a universal tax treatment can be fabricated.
+    assert all(row["gross_dy_pct"] is None and row["net_dy_brl_pct"] is None for row in reits_data)
 
 
 def test_billing_plans():
