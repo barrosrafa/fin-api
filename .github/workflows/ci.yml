@@ -2,9 +2,9 @@ name: "CI — fin-api (isolated database, Redis & Docker)"
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "codex/**"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "codex/**"]
 
 permissions:
   contents: read
@@ -45,17 +45,17 @@ jobs:
       PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout API
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Checkout actual database migration
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: barrosrafa/fin-db
           ref: b27ca2d1eb5362a6a2bc76e0d6600fe6139eb423
           path: fin-db
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           version: "latest"
           enable-cache: true
@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pytest-results
           path: reports/pytest.xml

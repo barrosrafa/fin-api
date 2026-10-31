@@ -45,7 +45,7 @@ class PortfolioService:
             """
             INSERT INTO core.carteira (id_usuario, nome_carteira, data_criacao)
             VALUES (
-                (SELECT id_usuario FROM core.usuario WHERE id_externo = :user_id OR email = :user_id LIMIT 1),
+                (SELECT id_usuario FROM core.usuario WHERE id_externo = :user_id OR email = :user_id OR id_usuario::text = :user_id LIMIT 1),
                 :nome, NOW()
             )
             RETURNING id_carteira, nome_carteira, data_criacao
@@ -75,7 +75,7 @@ class PortfolioService:
             SELECT c.id_carteira, c.nome_carteira, c.data_criacao
             FROM core.carteira c
             JOIN core.usuario u ON u.id_usuario = c.id_usuario
-            WHERE u.id_externo = :user_id OR u.email = :user_id
+            WHERE u.id_externo = :user_id OR u.email = :user_id OR u.id_usuario::text = :user_id
             ORDER BY c.data_criacao DESC
             """
         )
@@ -105,7 +105,7 @@ class PortfolioService:
             FROM core.carteira c
             JOIN core.usuario u ON u.id_usuario = c.id_usuario
             WHERE c.id_carteira = CAST(:wallet_id AS UUID)
-              AND (u.id_externo = :user_id OR u.email = :user_id)
+              AND (u.id_externo = :user_id OR u.email = :user_id OR u.id_usuario::text = :user_id)
             """
         )
         check_res = await db_session.execute(check_stmt, {"wallet_id": wallet_id, "user_id": user_id})

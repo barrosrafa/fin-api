@@ -1,8 +1,11 @@
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.content.router import router as content_router
+from app.ingestion.router import router as ingestion_router
 from app.config import get_settings
 from app.core.exceptions import FinApiException
 from app.core.rate_limit import ApiRateLimitMiddleware
@@ -56,23 +59,13 @@ def create_app() -> FastAPI:
 
     app.add_middleware(ApiRateLimitMiddleware, settings=settings)
 
-    # CORS Configuration
-    allowed_origins = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://fin-web.vercel.app",
-        "https://fin-web-wheat.vercel.app",
-        "https://fin.com.br",
-        "https://app.fin.com.br",
-    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_origin_regex=r"^https:\/\/([a-zA-Z0-9_-]+\.)?vercel\.app$",
-        allow_credentials=True,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
-        expose_headers=["X-Total-Count"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"],
+        expose_headers=["X-Total-Count", "X-Request-ID", "Location"],
     )
 
     # Security Headers Middleware
@@ -100,6 +93,7 @@ def create_app() -> FastAPI:
         )
 
     # Health & Readiness Probes
+    @app.get("/liveness", tags=["Health"])
     @app.get("/live", tags=["Health"])
     @app.get("/health", tags=["Health"])
     async def liveness():
@@ -110,22 +104,24 @@ def create_app() -> FastAPI:
             "environment": settings.ENVIRONMENT,
         }
 
+    @app.get("/readiness", tags=["Health"])
     @app.get("/ready", tags=["Health"])
     async def readiness():
         checks = {"database": False, "redis": False}
         try:
             from app.core.database import get_session_factory
             factory = get_session_factory()
-            async with factory() as session:
+            async with asyncio.timeout(3), factory() as session:
                 await session.execute(text("SELECT 1"))
             checks["database"] = True
         except Exception:
             logger.error("Readiness probe database check failed")
 
         try:
-            redis = await get_redis_client()
-            if redis and await redis.ping():
-                checks["redis"] = True
+            async with asyncio.timeout(1):
+                redis = await get_redis_client()
+                if redis and await redis.ping():
+                    checks["redis"] = True
         except Exception:
             logger.error("Readiness probe redis check failed")
 
@@ -137,6 +133,8 @@ def create_app() -> FastAPI:
         )
 
     # Mount Routers under /api/v1
+    app.include_router(content_router, prefix="/api/v1")
+    app.include_router(ingestion_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(market_router, prefix="/api/v1")
     app.include_router(portfolio_router, prefix="/api/v1")

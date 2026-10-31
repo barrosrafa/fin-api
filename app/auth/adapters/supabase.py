@@ -7,8 +7,9 @@ import redis.asyncio as aioredis
 
 from app.auth.contracts import AuthProvider
 from app.auth.models import User, UserClaims, UserRole, SubscriptionTier
-from app.core.exceptions import UnauthorizedException
+from app.core.exceptions import UnauthorizedException, FinApiException
 from app.core.logging import logger
+from app.core.database import bind_tenant
 
 
 class SupabaseAuthAdapter(AuthProvider):
@@ -70,6 +71,8 @@ class SupabaseAuthAdapter(AuthProvider):
         claims: UserClaims,
         db_session: Optional[AsyncSession] = None,
     ) -> User:
+        if db_session is not None:
+            await bind_tenant(db_session, claims.sub)
         cache_key = f"user:{claims.sub}:profile"
 
         # Check Redis Cache
@@ -93,33 +96,39 @@ class SupabaseAuthAdapter(AuthProvider):
         if db_session is not None:
             stmt = text(
                 """
-                INSERT INTO core.usuario (id_externo, email, nome, role, tier, ativo)
-                VALUES (:id_externo, :email, :nome, :role, :tier, true)
+                INSERT INTO core.usuario (id_externo, email, nome, role, tier, status)
+                VALUES (:id_externo, :email, :nome, :role, :tier, 'Ativo')
                 ON CONFLICT (email) DO UPDATE SET
                     id_externo = EXCLUDED.id_externo,
-                    role = EXCLUDED.role,
-                    tier = EXCLUDED.tier,
-                    atualizado_em = NOW()
+                    ultimo_acesso = NOW()
+                RETURNING id_usuario, nome, email, role, tier, status
                 """
             )
             try:
-                await db_session.execute(
+                result = await db_session.execute(
                     stmt,
                     {
                         "id_externo": user.id,
                         "email": user.email,
                         "nome": user.name,
-                        "role": user.role.value,
-                        "tier": user.tier.value,
+                        "role": UserRole.USER.value,
+                        "tier": SubscriptionTier.FREE.value,
                     },
                 )
+                profile = result.mappings().one()
+                user = User(id=str(profile["id_usuario"]), email=profile["email"], name=profile["nome"],
+                            role=profile["role"] or "user", tier=profile["tier"] or "free",
+                            is_active=(profile["status"] or "").lower() in {"ativo", "active"})
                 await db_session.commit()
-            except Exception as e:
+            except Exception:
                 await db_session.rollback()
-                logger.warning(f"JIT user sync fallback: {e}")
+                logger.error("JIT user synchronization failed")
+                raise FinApiException("User profile temporarily unavailable", status_code=503) from None
+            if not user.is_active:
+                raise UnauthorizedException("Account is inactive")
 
         # Store in Redis Cache with 1 hour TTL
         if self.redis is not None:
-            await self.redis.set(cache_key, json.dumps(user.model_dump()), ex=3600)
+            await self.redis.set(cache_key, json.dumps(user.model_dump()), ex=60)
 
         return user

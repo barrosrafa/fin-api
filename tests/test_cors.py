@@ -11,7 +11,6 @@ async def test_cors_allows_vercel_domains():
         test_origins = [
             "https://fin-web-wheat.vercel.app",
             "https://fin-web.vercel.app",
-            "https://fin-web-preview-123.vercel.app",
             "http://localhost:3000",
         ]
         for origin in test_origins:
@@ -29,7 +28,7 @@ async def test_cors_allows_vercel_domains():
         res_disallowed = await client.options(
             "/api/v1/market/benchmarks",
             headers={
-                "Origin": "https://malicious-site.com",
+                "Origin": "https://fin-web-preview-123.vercel.app",
                 "Access-Control-Request-Method": "GET",
             },
         )

@@ -1,3 +1,4 @@
+from app.core.database import bind_auth_email
 import json
 from typing import List, Optional
 from sqlalchemy import text
@@ -217,6 +218,7 @@ class CMSService:
         return None
 
     async def create_support_ticket(self, db_session: AsyncSession, ticket: SupportTicketCreate) -> SupportTicketResponse:
+        await bind_auth_email(db_session, ticket.email_contato)
         stmt = text(
             """
             INSERT INTO cms.ticket_suporte (nome_contato, email_contato, assunto, mensagem)

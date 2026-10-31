@@ -16,21 +16,14 @@ def test_health_check_memory_only():
     assert "version" in data
 
 
-def test_cors_headers_for_vercel_origins():
-    """Verify that requests from Vercel subdomains receive valid CORS headers."""
+def test_unlisted_preview_is_not_trusted():
     client = TestClient(app)
-    headers = {
+    response = client.options("/api/v1/market/PETR4", headers={
         "Origin": "https://fin-web-preview.vercel.app",
         "Access-Control-Request-Method": "GET",
-    }
-    response = client.options("/api/v1/market/quote/PETR4", headers=headers)
-    assert response.status_code in [200, 204]
-    # Check that Origin header or allow-origin matches
-    assert "access-control-allow-origin" in response.headers
-    assert response.headers["access-control-allow-origin"] in [
-        "https://fin-web-preview.vercel.app",
-        "*",
-    ]
+    })
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
 
 
 def test_port_environment_variable_fallback():

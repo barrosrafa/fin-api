@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from app.config import get_settings, Settings
-from app.core.database import get_async_session
+from app.core.database import get_async_session, bind_tenant, bind_auth_email
 from app.auth.models import User, UserRole, SubscriptionTier
 from app.auth.dependencies import get_current_user
 
@@ -73,6 +73,7 @@ async def register(
     db: Annotated[AsyncSession, Depends(get_async_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
+    await bind_auth_email(db, data.email)
     # Check if user already exists
     stmt_check = text("SELECT id_usuario FROM core.usuario WHERE email = :email LIMIT 1")
     res_check = await db.execute(stmt_check, {"email": data.email.lower().strip()})
@@ -107,6 +108,7 @@ async def register(
     user_row = res_user.mappings().one()
     user_id = str(user_row["id_usuario"])
 
+    await bind_tenant(db, user_id)
     # Create default user wallet
     stmt_wallet = text(
         """
@@ -118,7 +120,7 @@ async def register(
     await db.commit()
 
     # Generate JWT Token
-    jwt_secret = settings.SUPABASE_JWT_SECRET or "fin-super-secure-production-jwt-secret-key-2026"
+    jwt_secret = settings.SUPABASE_JWT_SECRET
     expires_in = 86400 * 7
     token = create_access_token(
         user_id=user_id,
@@ -158,6 +160,7 @@ async def login(
     db: Annotated[AsyncSession, Depends(get_async_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
+    await bind_auth_email(db, data.email)
     stmt = text(
         """
         SELECT id_usuario, nome, email, password_hash, salt, role, tier, status
@@ -190,7 +193,7 @@ async def login(
     )
     await db.commit()
 
-    jwt_secret = settings.SUPABASE_JWT_SECRET or "fin-super-secure-production-jwt-secret-key-2026"
+    jwt_secret = settings.SUPABASE_JWT_SECRET
     expires_in = 86400 * 7
     token = create_access_token(
         user_id=user_id,

@@ -15,7 +15,9 @@ def test_app():
 
 
 @pytest.mark.asyncio
-async def test_auth_registration_and_login_flow(test_app):
+async def test_auth_registration_and_login_flow(test_app, monkeypatch):
+    monkeypatch.setattr("app.auth.router.bind_auth_email", AsyncMock())
+    monkeypatch.setattr("app.auth.router.bind_tenant", AsyncMock())
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock()
     mock_db.commit = AsyncMock()

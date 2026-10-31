@@ -27,6 +27,8 @@ class TenantSession(Session):
 @event.listens_for(TenantSession, "after_begin")
 def _apply_tenant(session, transaction, connection):
     subject = session.info.get("auth_subject")
+    connection.execute(text("SELECT set_config('app.auth_subject', :subject, true), set_config('app.auth_email', :email, true)"),
+                       {"subject": subject or "", "email": session.info.get("auth_email", "")})
     if subject:
         connection.execute(TENANT_SQL, {"subject": subject})
     else:
@@ -36,7 +38,16 @@ def _apply_tenant(session, transaction, connection):
 async def bind_tenant(session: AsyncSession, subject: str) -> None:
     session.info["auth_subject"] = subject
     # Authentication may already have opened a transaction (JIT sync/cache miss).
+    await session.execute(text("SELECT set_config('app.auth_subject', :subject, true)"), {"subject": subject})
     await session.execute(TENANT_SQL, {"subject": subject})
+
+
+async def bind_auth_email(session: AsyncSession, email: str) -> None:
+    # Login/registration require one exact account before a tenant is authenticated.
+    # This scoped context is transaction-local and is cleared with the session.
+    normalized = email.lower().strip()
+    session.info["auth_email"] = normalized
+    await session.execute(text("SELECT set_config('app.auth_email', :email, true)"), {"email": normalized})
 
 
 _engine: AsyncEngine | None = None
@@ -59,6 +70,7 @@ def get_async_engine() -> AsyncEngine:
             max_overflow=settings.DATABASE_MAX_OVERFLOW,
             pool_pre_ping=True,
             echo=False,
+            hide_parameters=True,
         )
         _engine_loop = current_loop
         _sessionmaker = None
@@ -86,6 +98,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         finally:
             await session.rollback()
             session.info.pop("auth_subject", None)
+            session.info.pop("auth_email", None)
             await session.close()
 
 

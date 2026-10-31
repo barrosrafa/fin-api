@@ -25,7 +25,7 @@ from app.market.schemas import (
     QuoteHistoryResponse,
 )
 from app.core.logging import logger
-from app.worker.settings import QUEUE_DEFAULT
+from app.ingestion.commands import enqueue_refresh
 
 
 class MarketService:
@@ -599,18 +599,19 @@ class MarketService:
                     source=row.get("fonte", "fin-db"),
                 )
 
-        # Dispatch background job if arq pool is configured
+        # A real committed PostgreSQL task replaces the second ARQ ETL.
         job_id = None
-        if self.arq_pool is not None:
+        if db_session is not None:
             try:
-                job_id = await self.arq_pool.enqueue_job(
-                    "refresh_ticker_data_task",
-                    normalized,
-                    asset_class,
-                    _queue_name=QUEUE_DEFAULT,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to enqueue arq refresh job for {normalized}: {e}")
+                task = await enqueue_refresh(db_session, normalized)
+                job_id = str(task["task_id"])
+            except Exception:
+                await db_session.rollback()
+                if db_quote is None:
+                    raise FinApiException("Unable to schedule market ingestion", status_code=503)
+                logger.warning("Could not schedule market refresh; serving prior database quote")
+        elif db_quote is None:
+            raise FinApiException("Market database is unavailable", status_code=503)
 
         # If DB had prior quote, return stale-while-revalidate
         if db_quote is not None:
@@ -625,9 +626,9 @@ class MarketService:
         return QuoteResponse(
             ticker=normalized,
             status="syncing",
-            sync_id=str(job_id) if job_id else "sync_pending",
+            sync_id=job_id,
             message="Ativo válido em processo de coleta inicial",
-            check_url=f"/api/v1/market/{normalized}/sync-status",
+            check_url=f"/api/v1/ingestion/tasks/{job_id}",
         )
 
     async def get_indicators(
@@ -665,8 +666,19 @@ class MarketService:
 
         return IndicatorsResponse(ticker=normalized)
 
-    async def get_sync_status(self, ticker: str) -> SyncStatusResponse:
-        return SyncStatusResponse(ticker=ticker.upper(), status="completed", progress=100.0)
+    async def get_sync_status(self, ticker: str, db_session=None) -> SyncStatusResponse:
+        if db_session is None:
+            raise FinApiException("Task database unavailable", status_code=503)
+        result = await db_session.execute(text("""
+            SELECT status FROM ingestion.ingestion_task
+            WHERE target_entity=:ticker AND task_key LIKE 'api-refresh:%'
+            ORDER BY created_at DESC LIMIT 1
+        """), {"ticker": ticker.strip().upper()})
+        state = result.scalar()
+        status_map = {"PENDING": "in_progress", "RUNNING": "in_progress",
+                      "COMPLETED": "completed", "FAILED": "failed", "CANCELLED": "failed"}
+        return SyncStatusResponse(ticker=ticker.upper(), status=status_map.get(state, "idle"),
+                                  progress=100.0 if state == "COMPLETED" else 0.0)
 
     async def get_ibov_pe_history(
         self,

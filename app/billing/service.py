@@ -32,7 +32,7 @@ class BillingService:
                 logger.info(f"Duplicate webhook {event.event_id} safely ignored.")
                 return False
 
-        logger.info(f"Processing webhook {event.event_id}: type={event.event_type}, email={event.customer_email}")
+        logger.info(f"Processing webhook {event.event_id}: type={event.event_type}")
 
         # Step 2: Handle subscription upgrade on confirmation inside database transaction
         confirmed_events = ("PAYMENT_RECEIVED", "PAYMENT_CONFIRMED", "invoice.payment_succeeded")

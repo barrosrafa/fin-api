@@ -24,6 +24,8 @@ router = APIRouter(prefix="/billing", tags=["Billing"])
 async def get_payment_provider(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> PaymentProvider:
+    if settings.ENVIRONMENT == "production" and not settings.BILLING_ENABLED:
+        raise HTTPException(status_code=503, detail="Billing is not enabled in this environment")
     return AsaasPaymentProvider(
         api_key=settings.ASAAS_API_KEY,
         environment=settings.ASAAS_ENVIRONMENT,

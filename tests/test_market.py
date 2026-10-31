@@ -76,12 +76,8 @@ async def test_quote_cache_miss_db_hit_returns_stale_and_enqueues():
     assert response.status == "stale"
     assert response.quote.ticker == "VALE3"
     assert response.quote.price == 60.50
-    mock_arq.enqueue_job.assert_called_once_with(
-        "refresh_ticker_data_task",
-        "VALE3",
-        "stock",
-        _queue_name="default",
-    )
+    mock_arq.enqueue_job.assert_not_called()
+    mock_db.commit.assert_awaited_once()
 
 @pytest.mark.asyncio
 async def test_quote_total_miss_returns_202_accepted():
@@ -105,13 +101,9 @@ async def test_quote_total_miss_returns_202_accepted():
         arq_pool=mock_arq,
     )
 
-    response = await service.get_quote("NEWIPO3", db_session=mock_db)
+    with patch("app.market.service.enqueue_refresh", AsyncMock(return_value={"task_id": "job_new_xyz"})):
+        response = await service.get_quote("NEWIPO3", db_session=mock_db)
     assert response.status == "syncing"
     assert response.sync_id == "job_new_xyz"
-    assert "processo de coleta inicial" in response.message
-    mock_arq.enqueue_job.assert_called_once_with(
-        "refresh_ticker_data_task",
-        "NEWIPO3",
-        "stock",
-        _queue_name="default",
-    )
+    assert response.check_url == "/api/v1/ingestion/tasks/job_new_xyz"
+    mock_arq.enqueue_job.assert_not_called()

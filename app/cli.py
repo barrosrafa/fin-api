@@ -28,6 +28,7 @@ def serve(
         host=host,
         port=port,
         reload=reload,
+        proxy_headers=False,  # CIDR trust is enforced once, by application middleware.
         workers=workers if not reload else 1,
     )
 
@@ -64,10 +65,9 @@ def catalog_sync():
             logger.warning(f"Failed to fetch tickers from core.ativo: {e}")
 
         if not tickers:
-            tickers = [
-                "PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3", "ABEV3", "WEGE3", "RENT3",
-                "HGLG11", "KNIP11", "XPLG11", "MXRF11", "BTLG11", "VISC11", "BOVA11", "IVVB11"
-            ]
+            await close_database_engine()
+            await close_redis_client()
+            raise RuntimeError("No authoritative tickers available; catalog sync aborted")
 
         count = await catalog.add_tickers(tickers)
         typer.echo(f"Successfully seeded {count} tickers into TickerCatalog!")

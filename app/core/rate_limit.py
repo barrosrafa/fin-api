@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import math
 import time
+from ipaddress import ip_address, ip_network
 from collections import OrderedDict
 
 from redis.exceptions import RedisError
@@ -28,9 +29,34 @@ return math.ceil(delay * 1000)
 """
 
 
+def client_address(request, trusted_networks):
+    peer = request.client.host if request.client else "unknown"
+    def trusted(value):
+        try:
+            address = ip_address(value)
+            return any(address in network for network in trusted_networks)
+        except ValueError:
+            return False
+    if not trusted(peer):
+        return peer
+    chain = request.headers.get("x-forwarded-for", "").split(",")
+    if len(chain) > 20:
+        return peer
+    for candidate in reversed(chain):
+        candidate = candidate.strip()
+        try:
+            ip_address(candidate)
+        except ValueError:
+            return peer
+        if not trusted(candidate):
+            return candidate
+    return peer
+
+
 class ApiRateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, settings):
         super().__init__(app)
+        self.trusted_networks = [ip_network(cidr) for cidr in settings.TRUSTED_PROXY_CIDRS]
         self.enabled = settings.API_RATE_LIMIT_ENABLED
         self.capacity = settings.API_RATE_LIMIT_BURST
         self.rate = settings.API_RATE_LIMIT_PER_MINUTE / 60
@@ -50,7 +76,7 @@ class ApiRateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if not self.enabled or request.method == 'OPTIONS' or not request.url.path.startswith('/api/v1/'):
             return await call_next(request)
-        peer = request.client.host if request.client else 'unknown'
+        peer = client_address(request, self.trusted_networks)
         key = 'fin:api:rate:' + hashlib.sha256(peer.encode()).hexdigest()
         # Always account locally so a Redis outage cannot replenish the fallback bucket.
         local_delay = self.local_delay(key)

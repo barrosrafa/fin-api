@@ -52,9 +52,9 @@ async def test_jit_user_creation_and_redis_cache():
     mock_redis.set = AsyncMock()
 
     mock_db = AsyncMock()
-    # Mock DB query returning None (user not yet in core.usuario), then commits insert
+    # Mock the canonical profile returned by the database insert.
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
+    mock_result.mappings.return_value.one.return_value = {"id_usuario":"user_abc_789", "nome":"newuser", "email":"newuser@fin.com", "role":"user", "tier":"free", "status":"Ativo"}
     mock_db.execute = AsyncMock(return_value=mock_result)
     mock_db.commit = AsyncMock()
 
@@ -76,7 +76,7 @@ async def test_jit_user_creation_and_redis_cache():
     assert user.role == UserRole.USER
     assert user.tier == SubscriptionTier.FREE
     
-    # Assert Redis cache set was called with 1 hour TTL
+    # Cache the resolved profile briefly; authorization remains database-backed.
     mock_redis.set.assert_called_once()
     assert "user:user_abc_789:profile" in mock_redis.set.call_args[0][0]
 

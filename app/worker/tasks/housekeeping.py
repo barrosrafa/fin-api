@@ -1,18 +1,7 @@
-from typing import Dict, Any
-from app.core.logging import logger
+"""Legacy tasks are disabled until an implementation has operational evidence."""
 
+async def refresh_clube_fii_token_task(ctx):
+    raise NotImplementedError("refresh_clube_fii_token_task is disabled: no verified implementation")
 
-async def refresh_clube_fii_token_task(ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Refreshes expiring JWT authentication tokens for Clube FII CR Data GraphQL API.
-    """
-    logger.info("Executing refresh_clube_fii_token_task...")
-    return {"status": "success", "token_refreshed": True}
-
-
-async def purge_stale_cache_task(ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Cleans up old ephemeral sync keys and expired idempotency locks.
-    """
-    logger.info("Executing purge_stale_cache_task...")
-    return {"status": "success", "keys_purged": 0}
+async def purge_stale_cache_task(ctx):
+    raise NotImplementedError("purge_stale_cache_task is disabled: no verified implementation")
