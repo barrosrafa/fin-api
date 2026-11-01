@@ -163,7 +163,7 @@ async def export_stock_dividends(
     ]
     for it in items:
         csv_lines.append(
-            f"{it.assetTicker};{it.type};{it.referenceMonth};{it.dateCom};{it.dateEx or ''};{it.paymentDate};{it.valuePerShare:.4f};{it.yieldOnCostPct:.2f}%;{it.status};{it.sourceUrl or ''}"
+            f"{it.assetTicker};{it.type};{it.referenceMonth};{it.dateCom};{it.dateEx or ''};{it.paymentDate};{it.valuePerShare:.11f};{it.yieldOnCostPct:.2f}%;{it.status};{it.sourceUrl or ''}"
         )
     csv_content = "\r\n".join(csv_lines)
     return Response(

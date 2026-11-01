@@ -134,7 +134,7 @@ class StockService:
                     FROM market.provento
                     WHERE id_ativo = :id_ativo
                     ORDER BY data_com DESC
-                    LIMIT 10;
+                    LIMIT 1000;
                     """
                 )
                 div_res = await db_session.execute(div_stmt, {"id_ativo": id_ativo})
@@ -742,13 +742,7 @@ class StockService:
                 year_map[ano][mes - 1] = round(val, 4)
 
         if not year_map:
-            # Fallback anos recentes
-            years_list = [2026, 2025, 2024]
-            matrix = [
-                DividendMatrixRow(year=y, months=[0.45, None, 0.60, None, 0.85, None, 0.40, None, 0.50, None, None, 1.20], annual_total=4.00, yield_on_cost_pct=10.4)
-                for y in years_list
-            ]
-            return DividendMatrixResponse(ticker=t, years=years_list, matrix=matrix)
+            return DividendMatrixResponse(ticker=t, years=[], matrix=[])
 
         matrix = []
         for ano in sorted(year_map.keys(), reverse=True):
