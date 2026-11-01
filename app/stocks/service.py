@@ -739,10 +739,17 @@ class StockService:
             if ano not in year_map:
                 year_map[ano] = [None] * 12
             if 1 <= mes <= 12:
-                year_map[ano][mes - 1] = round(val, 4)
+                year_map[ano][mes - 1] = val
 
         if not year_map:
             return DividendMatrixResponse(ticker=t, years=[], matrix=[])
+
+        quote = await db_session.execute(text("""
+            SELECT cd.preco_fechamento FROM market.cotacao_diaria cd
+            JOIN core.ativo a USING(id_ativo) WHERE a.ticker=:ticker
+            ORDER BY cd.data_pregao DESC LIMIT 1
+        """), {"ticker": t})
+        current_price = self._source_number(quote.scalar(), positive=True)
 
         matrix = []
         for ano in sorted(year_map.keys(), reverse=True):
@@ -752,8 +759,8 @@ class StockService:
                 DividendMatrixRow(
                     year=ano,
                     months=months,
-                    annual_total=round(tot, 2),
-                    yield_on_cost_pct=round((tot / 38.45) * 100.0, 2) if tot > 0 else 0.0,
+                    annual_total=round(tot, 11),
+                    yield_on_cost_pct=round((tot / current_price) * 100.0, 2) if current_price else None,
                 )
             )
 

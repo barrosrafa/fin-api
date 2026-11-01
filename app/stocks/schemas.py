@@ -233,7 +233,7 @@ class DividendMatrixRow(BaseModel):
     year: int
     months: List[Optional[float]] = Field(default_factory=list)  # 12 meses (Jan a Dez)
     annual_total: float
-    yield_on_cost_pct: float = 0.0
+    yield_on_cost_pct: Optional[float] = None
 
 
 class DividendMatrixResponse(BaseModel):
