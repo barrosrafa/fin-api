@@ -6348,9 +6348,15 @@
             "title": "Annual Total"
           },
           "yield_on_cost_pct": {
-            "type": "number",
-            "title": "Yield On Cost Pct",
-            "default": 0.0
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yield On Cost Pct"
           }
         },
         "type": "object",
