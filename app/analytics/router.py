@@ -82,7 +82,7 @@ async def export_dividend_calendar(
     for it in items:
         yield_str = f"{it.yield_evento_pct:.2f}%" if it.yield_evento_pct is not None else ""
         csv_lines.append(
-            f"{it.ticker};{it.tipo};{it.data_com or ''};{it.data_ex or ''};{it.data_pagamento or ''};{it.status};{it.valor_bruto:.4f};{it.aliquota_ir_pct:.2f}%;{it.valor_liquido:.4f};{yield_str}"
+            f"{it.ticker};{it.tipo};{it.data_com or ''};{it.data_ex or ''};{it.data_pagamento or ''};{it.status};{it.valor_bruto:.11f};{it.aliquota_ir_pct:.2f}%;{it.valor_liquido:.11f};{yield_str}"
         )
     csv_content = "\r\n".join(csv_lines)
     return Response(
