@@ -255,7 +255,7 @@ class FIIService:
                 FROM market.provento p
                 WHERE p.id_ativo = :id_ativo
                 ORDER BY p.data_com DESC
-                LIMIT 100;
+                LIMIT 1000;
                 """
             )
             d_res = await db_session.execute(div_stmt, {"id_ativo": id_ativo})
@@ -271,7 +271,7 @@ class FIIService:
                         date_com=dr["dt_com"],
                         date_ex=dr["dt_ex"],
                         date_payment=dr["dt_pag"],
-                        value_per_share=round(v, 4),
+                        value_per_share=v,
                         yield_pct=y_pct,
                         status=dr["status_aprovacao"],
                     )
