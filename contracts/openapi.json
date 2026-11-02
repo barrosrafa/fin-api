@@ -5099,6 +5099,28 @@
       },
       "BenchmarkItem": {
         "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
           "name": {
             "type": "string",
             "title": "Name"
@@ -5477,7 +5499,14 @@
             "title": "Sector"
           },
           "segment": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Segment"
           },
           "consecutive_profitable_years": {
@@ -5518,11 +5547,25 @@
             "title": "Current Pb"
           },
           "current_dy": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Current Dy"
           },
           "current_roe": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Current Roe"
           }
         },
@@ -5531,10 +5574,7 @@
           "ticker",
           "company_name",
           "sector",
-          "segment",
-          "consecutive_profitable_years",
-          "current_dy",
-          "current_roe"
+          "consecutive_profitable_years"
         ],
         "title": "ConsistencyScreenerItem"
       },
@@ -7305,7 +7345,7 @@
           "fundamentals_note": {
             "type": "string",
             "title": "Fundamentals Note",
-            "default": "Base patrimonial: último informe CVM disponível até a referência da cotação. Ausência de informe implica indicador indisponível. DY observado: pagamentos documentados disponíveis nos 12 meses até a cotação; cobertura pode ser parcial."
+            "default": "P/VP usa informe CVM oficial, quando há referência não ambígua até a sessão da cotação. DY 12M indisponível sem cobertura completa verificável."
           },
           "ticker": {
             "type": "string",
@@ -8230,6 +8270,31 @@
               }
             ],
             "title": "Liquidity Daily"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "quote_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Date"
+          },
+          "trading": {
+            "$ref": "#/components/schemas/TradingStatus"
           }
         },
         "type": "object",
