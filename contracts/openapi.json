@@ -4913,6 +4913,31 @@
       },
       "AssetSummaryResponse": {
         "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "quote_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Date"
+          },
+          "trading": {
+            "$ref": "#/components/schemas/TradingStatus"
+          },
           "ticker": {
             "type": "string",
             "title": "Ticker"
@@ -4952,7 +4977,14 @@
             "title": "Currentprice"
           },
           "change24h": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Change24H"
           },
           "change12m": {
@@ -4967,7 +4999,14 @@
             "title": "Change12M"
           },
           "dividendYield": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Dividendyield"
           },
           "marketCap": {
@@ -5027,9 +5066,7 @@
           "ticker",
           "name",
           "type",
-          "sector",
-          "change24h",
-          "dividendYield"
+          "sector"
         ],
         "title": "AssetSummaryResponse"
       },
@@ -6498,6 +6535,31 @@
       },
       "ETFDetailResponse": {
         "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "quote_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Date"
+          },
+          "trading": {
+            "$ref": "#/components/schemas/TradingStatus"
+          },
           "ticker": {
             "type": "string",
             "title": "Ticker"
@@ -6507,15 +6569,36 @@
             "title": "Name"
           },
           "benchmark_index": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Benchmark Index"
           },
           "provider": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Provider"
           },
           "current_price": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Current Price"
           },
           "nav_per_share": {
@@ -6541,29 +6624,70 @@
             "title": "Nav Spread Pct"
           },
           "ter_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ter Pct"
           },
           "primary_fee_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Primary Fee Pct"
           },
           "secondary_fee_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Secondary Fee Pct"
           },
           "policy": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Policy"
           },
           "shares_lending_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Shares Lending Pct"
           },
           "max_lending_limit_pct": {
-            "type": "number",
-            "title": "Max Lending Limit Pct",
-            "default": 30.0
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Lending Limit Pct"
           },
           "underlying_holdings": {
             "items": {
@@ -6593,15 +6717,7 @@
         "type": "object",
         "required": [
           "ticker",
-          "name",
-          "benchmark_index",
-          "provider",
-          "current_price",
-          "ter_pct",
-          "primary_fee_pct",
-          "secondary_fee_pct",
-          "policy",
-          "shares_lending_pct"
+          "name"
         ],
         "title": "ETFDetailResponse"
       },
@@ -6612,7 +6728,14 @@
             "title": "Ticker"
           },
           "max_drawdown_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Max Drawdown Pct"
           },
           "valley_date": {
@@ -6650,8 +6773,7 @@
         },
         "type": "object",
         "required": [
-          "ticker",
-          "max_drawdown_pct"
+          "ticker"
         ],
         "title": "ETFDrawdownResponse"
       },
@@ -6794,7 +6916,14 @@
             "title": "Data Referencia"
           },
           "total_assets": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total Assets"
           },
           "liquid_assets": {
@@ -6818,19 +6947,24 @@
             "title": "Total Liabilities"
           },
           "net_worth": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Net Worth"
           }
         },
         "type": "object",
         "required": [
           "data_referencia",
-          "total_assets",
           "liquid_assets",
           "investments",
           "receivables",
-          "total_liabilities",
-          "net_worth"
+          "total_liabilities"
         ],
         "title": "FIIBalanceSheetData"
       },
@@ -6841,11 +6975,25 @@
             "title": "Name"
           },
           "score": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Score"
           },
           "weight": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Weight"
           },
           "status": {
@@ -6860,8 +7008,6 @@
         "type": "object",
         "required": [
           "name",
-          "score",
-          "weight",
           "status",
           "comment"
         ],
@@ -6882,11 +7028,25 @@
             "title": "Indexer"
           },
           "coupon_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Coupon Pct"
           },
           "ltv_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ltv Pct"
           },
           "guarantees": {
@@ -6911,8 +7071,6 @@
           "code",
           "debtor",
           "indexer",
-          "coupon_pct",
-          "ltv_pct",
           "guarantees"
         ],
         "title": "FIICRIHolding"
@@ -7097,6 +7255,58 @@
       },
       "FIIDetailResponse": {
         "properties": {
+          "fundamentals_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fundamentals Source"
+          },
+          "fundamentals_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fundamentals Date"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "quote_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Date"
+          },
+          "trading": {
+            "$ref": "#/components/schemas/TradingStatus"
+          },
+          "fundamentals_note": {
+            "type": "string",
+            "title": "Fundamentals Note",
+            "default": "Base patrimonial: último informe CVM disponível até a referência da cotação. Ausência de informe implica indicador indisponível. DY observado: pagamentos documentados disponíveis nos 12 meses até a cotação; cobertura pode ser parcial."
+          },
           "ticker": {
             "type": "string",
             "title": "Ticker"
@@ -7110,33 +7320,81 @@
             "title": "Segment"
           },
           "current_price": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Current Price"
           },
           "pvp": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Pvp"
           },
           "dividend_yield_12m": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Dividend Yield 12M"
           },
           "net_worth": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Net Worth"
           },
           "physical_vacancy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Physical Vacancy Pct"
           },
           "financial_vacancy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Financial Vacancy Pct"
           },
           "wault_years": {
-            "type": "number",
-            "title": "Wault Years",
-            "default": 4.2
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wault Years"
           },
           "properties": {
             "items": {
@@ -7237,13 +7495,7 @@
         "required": [
           "ticker",
           "name",
-          "segment",
-          "current_price",
-          "pvp",
-          "dividend_yield_12m",
-          "net_worth",
-          "physical_vacancy_pct",
-          "financial_vacancy_pct"
+          "segment"
         ],
         "title": "FIIDetailResponse"
       },
@@ -7382,11 +7634,25 @@
             "title": "Date Payment"
           },
           "value_per_share": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Value Per Share"
           },
           "yield_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Yield Pct"
           },
           "status": {
@@ -7400,8 +7666,6 @@
           "type",
           "date_com",
           "date_payment",
-          "value_per_share",
-          "yield_pct",
           "status"
         ],
         "title": "FIIDividendItem"
@@ -7409,87 +7673,234 @@
       "FIIIndicatorsData": {
         "properties": {
           "pvp": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Pvp"
           },
           "vp_per_share": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Vp Per Share"
           },
           "dividend_yield_12m": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Dividend Yield 12M"
           },
           "last_dividend": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Last Dividend"
           },
           "expense_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Expense Pct"
           },
           "cash_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cash Pct"
           },
           "default_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Default Pct"
           },
           "physical_vacancy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Physical Vacancy Pct"
           },
           "financial_vacancy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Financial Vacancy Pct"
           },
           "shares_count": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Shares Count"
           },
           "shareholders_count": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Shareholders Count"
           },
           "market_cap": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Market Cap"
           },
           "daily_trades": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Daily Trades"
           },
           "daily_volume": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Daily Volume"
           },
           "net_worth": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Net Worth"
           },
           "change_1d": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Change 1D"
           },
           "change_12m": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Change 12M"
           },
           "min_52w": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Min 52W"
           },
           "max_52w": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Max 52W"
           },
           "cagr_dividends_3y": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cagr Dividends 3Y"
           },
           "cagr_share_value_3y": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cagr Share Value 3Y"
           },
           "quote_datetime": {
@@ -7505,82 +7916,111 @@
           }
         },
         "type": "object",
-        "required": [
-          "pvp",
-          "vp_per_share",
-          "dividend_yield_12m",
-          "last_dividend",
-          "expense_pct",
-          "cash_pct",
-          "default_pct",
-          "physical_vacancy_pct",
-          "financial_vacancy_pct",
-          "shares_count",
-          "shareholders_count",
-          "market_cap",
-          "daily_trades",
-          "daily_volume",
-          "net_worth",
-          "change_1d",
-          "change_12m",
-          "min_52w",
-          "max_52w",
-          "cagr_dividends_3y",
-          "cagr_share_value_3y"
-        ],
         "title": "FIIIndicatorsData"
       },
       "FIILucratividadeData": {
         "properties": {
           "rental_income": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Rental Income"
           },
           "property_sale_income": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Property Sale Income"
           },
           "securities_income": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Securities Income"
           },
           "financial_income": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Financial Income"
           },
           "operating_expenses": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Operating Expenses"
           },
           "admin_fee_expense": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Admin Fee Expense"
           },
           "other_expenses": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Other Expenses"
           },
           "net_profit": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Net Profit"
           },
           "distributed_per_share": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Distributed Per Share"
           }
         },
         "type": "object",
-        "required": [
-          "rental_income",
-          "property_sale_income",
-          "securities_income",
-          "financial_income",
-          "operating_expenses",
-          "admin_fee_expense",
-          "other_expenses",
-          "net_profit",
-          "distributed_per_share"
-        ],
         "title": "FIILucratividadeData"
       },
       "FIIPropertyItem": {
@@ -7594,57 +8034,112 @@
             "title": "Name"
           },
           "type": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Type"
           },
           "address": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Address"
           },
           "city": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "City"
           },
           "state": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "State"
           },
           "abl_m2": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Abl M2"
           },
           "occupancy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Occupancy Pct"
           },
           "siila_standard": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Siila Standard"
           },
           "fund_share_pct": {
-            "type": "number",
-            "title": "Fund Share Pct",
-            "default": 100.0
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fund Share Pct"
           }
         },
         "type": "object",
         "required": [
           "id",
-          "name",
-          "type",
-          "address",
-          "city",
-          "state",
-          "abl_m2",
-          "occupancy_pct",
-          "siila_standard"
+          "name"
         ],
         "title": "FIIPropertyItem"
       },
       "FIIRankingItem": {
         "properties": {
           "rank": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Rank"
           },
           "ticker": {
@@ -7660,47 +8155,88 @@
             "title": "Segment"
           },
           "price": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Price"
           },
           "dy_12m": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Dy 12M"
           },
           "pvp": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Pvp"
           },
           "net_worth": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Net Worth"
           },
           "physical_vacancy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Physical Vacancy Pct"
           },
           "financial_vacancy_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Financial Vacancy Pct"
           },
           "liquidity_daily": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Liquidity Daily"
           }
         },
         "type": "object",
         "required": [
-          "rank",
           "ticker",
           "name",
-          "segment",
-          "price",
-          "dy_12m",
-          "pvp",
-          "net_worth",
-          "physical_vacancy_pct",
-          "financial_vacancy_pct",
-          "liquidity_daily"
+          "segment"
         ],
         "title": "FIIRankingItem"
       },
@@ -7715,7 +8251,14 @@
             "title": "Sector"
           },
           "revenue_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Revenue Pct"
           },
           "contract_type": {
@@ -7727,7 +8270,6 @@
         "required": [
           "tenant_name",
           "sector",
-          "revenue_pct",
           "contract_type"
         ],
         "title": "FIITenantConcentration"
@@ -7759,11 +8301,25 @@
             "title": "Data Referencia"
           },
           "vacancia_fisica_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Vacancia Fisica Pct"
           },
           "vacancia_financeira_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Vacancia Financeira Pct"
           },
           "abl_propria_m2": {
@@ -7791,9 +8347,7 @@
         },
         "type": "object",
         "required": [
-          "data_referencia",
-          "vacancia_fisica_pct",
-          "vacancia_financeira_pct"
+          "data_referencia"
         ],
         "title": "FIIVacancyPoint"
       },
@@ -10224,6 +10778,20 @@
       },
       "StockDetailsResponse": {
         "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "trading": {
+            "$ref": "#/components/schemas/TradingStatus"
+          },
           "ticker": {
             "type": "string",
             "title": "Ticker"
@@ -10878,8 +11446,40 @@
             "title": "Price"
           },
           "dy": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Dy"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "quote_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Date"
+          },
+          "trading": {
+            "$ref": "#/components/schemas/TradingStatus"
           },
           "pl": {
             "anyOf": [
@@ -10964,8 +11564,7 @@
           "rank",
           "ticker",
           "name",
-          "sector",
-          "dy"
+          "sector"
         ],
         "title": "StockRankingItem"
       },
@@ -11676,13 +12275,26 @@
             "title": "Price"
           },
           "change_pct": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Change Pct"
           },
           "volume": {
-            "type": "number",
-            "title": "Volume",
-            "default": 0.0
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
           },
           "p_l": {
             "anyOf": [
@@ -11733,10 +12345,53 @@
         "type": "object",
         "required": [
           "ticker",
-          "price",
-          "change_pct"
+          "price"
         ],
         "title": "TickerQuote"
+      },
+      "TradingStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "unknown"
+          },
+          "ended_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended On"
+          },
+          "successor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "type": "object",
+        "title": "TradingStatus"
       },
       "TreasuryBondItem": {
         "properties": {

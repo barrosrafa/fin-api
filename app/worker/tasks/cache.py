@@ -1,6 +1,6 @@
 """ARQ cache jobs read published database data; collection belongs to ingestion."""
 import json
-from sqlalchemy import text
+from app.market.quality import verified_market_text as text
 
 
 async def warm_cache_top_tickers_task(ctx, tickers=None):

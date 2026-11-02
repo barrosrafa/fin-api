@@ -1,7 +1,8 @@
 import json
 import datetime
 from typing import Optional, Dict, Any, List
-from sqlalchemy import text
+from app.market.quality import verified_market_text as text
+from app.market.lifecycle import trading_status
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
@@ -51,7 +52,8 @@ class MarketService:
                 pass
         stmt = text(
             """
-            SELECT b.codigo, b.nome, 
+            SELECT b.codigo, b.nome, b.fonte AS source,
+                   (SELECT s.data_referencia::text FROM market.benchmark_serie s WHERE s.id_benchmark=b.id_benchmark ORDER BY s.data_referencia DESC LIMIT 1) AS as_of,
                    (SELECT s.valor FROM market.benchmark_serie s WHERE s.id_benchmark = b.id_benchmark ORDER BY s.data_referencia DESC LIMIT 1) as last_val,
                    NULL as last_change
             FROM market.benchmark b
@@ -95,6 +97,7 @@ class MarketService:
             benchmarks.append(
                 BenchmarkItem(
                     name=r["nome"],
+                    source=r.get("source"), as_of=r.get("as_of"),
                     ticker=r["codigo"],
                     value=float(r["last_val"]),
                     change=change_pct,
@@ -180,9 +183,9 @@ class MarketService:
 
         dir_sql = "ASC" if sort_dir and sort_dir.lower() == "asc" else "DESC"
         if sort_by == "dy":
-            order_sql = f"COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) {dir_sql} NULLS LAST, a.ticker ASC"
+            order_sql = f"CASE WHEN a.tipo_ativo::text = 'FII' THEN NULL ELSE inf.dividend_yield END {dir_sql} NULLS LAST, a.ticker ASC"
         elif sort_by == "pvp":
-            order_sql = f"COALESCE(inf.pvp, df.pvp, 999.0) {dir_sql} NULLS LAST, a.ticker ASC"
+            order_sql = f"CASE WHEN a.tipo_ativo::text = 'FII' THEN CASE WHEN official.valor_patrimonial_cota > 0 THEN cd.preco_fechamento / official.valor_patrimonial_cota END ELSE inf.pvp END {dir_sql} NULLS LAST, a.ticker ASC"
         elif sort_by in ("preco", "currentPrice"):
             order_sql = f"COALESCE(cd.preco_fechamento, 0.0) {dir_sql} NULLS LAST, a.ticker ASC"
         elif sort_by == "change24h":
@@ -215,17 +218,18 @@ class MarketService:
                 a.tipo_ativo::text as tipo,
                 COALESCE(ed.indice_referencia, ec.setor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Imobiliário' WHEN 'ETF' THEN 'Índice Global' ELSE 'Geral' END) as setor,
                 COALESCE(ec.subsetor, CASE a.tipo_ativo::text WHEN 'FII' THEN 'Tijolo / Papel' WHEN 'ETF' THEN 'Renda Variável' ELSE 'Diversificado' END) as subsetor,
-                cd.preco_fechamento as preco,
-                COALESCE(cd.variacao_percentual, 0.0) as var24h,
+                cd.preco_fechamento as preco, cd.data_pregao::text AS quote_date, ci.status AS registry_status,
+                cd.variacao_percentual as var24h,
                 cd12m.preco_12m,
                 spark.historico_5d,
-                COALESCE(inf.dividend_yield, df.dividend_yield, 0.0) as dy,
-                COALESCE(inf.pvp, df.pvp) as pvp,
+                CASE WHEN a.tipo_ativo::text = 'FII' THEN NULL ELSE inf.dividend_yield END as dy,
+                CASE WHEN a.tipo_ativo::text = 'FII' THEN CASE WHEN official.valor_patrimonial_cota > 0 THEN cd.preco_fechamento / official.valor_patrimonial_cota END ELSE inf.pvp END as pvp,
                 COALESCE(inf.pl, 0.0) as pl,
                 COALESCE(inf.valor_mercado, df.patrimonio_liquido, 0.0) as market_cap
             FROM core.ativo a
             LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
             LEFT JOIN asset_details.etf_detalhe ed ON ed.id_ativo = a.id_ativo
+            LEFT JOIN canonical.instrument ci ON ci.instrument_id = a.canonical_instrument_id
             LEFT JOIN LATERAL (
                 SELECT preco_fechamento, variacao_percentual, data_pregao
                 FROM market.cotacao_diaria 
@@ -256,11 +260,13 @@ class MarketService:
                 ORDER BY data_referencia DESC LIMIT 1
             ) inf ON TRUE
             LEFT JOIN LATERAL (
-                SELECT dividend_yield, pvp, patrimonio_liquido 
+                SELECT dividend_yield, pvp, patrimonio_liquido, valor_patrimonial_cota
                 FROM asset_details.detalhe_fii 
                 WHERE id_ativo = a.id_ativo 
                 LIMIT 1
             ) df ON TRUE
+            LEFT JOIN market.fii_reference_verified official ON official.ticker=a.ticker
+                AND official.data_referencia <= COALESCE(cd.data_pregao,CURRENT_DATE)
             WHERE {where_sql}
             ORDER BY {order_sql}
             LIMIT :limit OFFSET :offset;
@@ -272,13 +278,13 @@ class MarketService:
         results = []
         for r in rows:
             p = float(r["preco"]) if r["preco"] is not None else None
-            dy = float(r["dy"]) if r["dy"] is not None else 0.0
+            dy = float(r["dy"]) if r["dy"] is not None else None
             pvp = float(r["pvp"]) if r["pvp"] is not None else None
             pl = float(r["pl"]) if r["pl"] is not None and float(r["pl"]) != 0 else None
 
             # Badge logic based on fundamentals
             badge = None
-            if dy > 10.0:
+            if dy is not None and dy > 10.0:
                 badge = "Alta Renda Passiva"
             elif pvp is not None and pvp < 1.0 and pvp > 0:
                 badge = "P/VP Abaixo de 1.0"
@@ -311,7 +317,9 @@ class MarketService:
                     sector=r["setor"],
                     subsector=r["subsetor"],
                     currentPrice=p,
-                    change24h=float(r["var24h"]),
+                    source="B3 / COTAHIST" if p is not None else None,
+                    quote_date=r.get("quote_date"), trading=trading_status(r["ticker"], r.get("registry_status")),
+                    change24h=float(r["var24h"]) if r["var24h"] is not None and p is not None else None,
                     change12m=change12m,
                     dividendYield=dy,
                     marketCap=float(r["market_cap"]) if r["market_cap"] else None,
@@ -369,64 +377,18 @@ class MarketService:
         values = [r[0] for r in res.fetchall() if r[0]]
         return ["TODOS"] + values
 
-    async def get_highlights(
-        self,
-        asset_type: str = "FII",
-        db_session: Optional[AsyncSession] = None,
-    ) -> Dict[str, Any]:
-        """Returns top highlights (highest DY, lowest P/VP, etc.) across the full database."""
+    async def get_highlights(self, asset_type: str = "FII", db_session: Optional[AsyncSession] = None) -> Dict[str, Any]:
         if db_session is None:
             return {}
-
-        if asset_type == "FII":
-            stmt = text(
-                """
-                SELECT 
-                    (
-                        SELECT json_build_object('ticker', a.ticker, 'dividendYield', COALESCE(df.dividend_yield, 0.0), 'name', COALESCE(ec.nome_empresarial, a.ticker))
-                        FROM core.ativo a
-                        JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
-                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
-                        WHERE a.tipo_ativo::text = 'FII' AND df.dividend_yield IS NOT NULL AND df.dividend_yield <= 40.0
-                        ORDER BY df.dividend_yield DESC LIMIT 1
-                    ) as highest_dy,
-                    (
-                        SELECT json_build_object('ticker', a.ticker, 'pvp', df.pvp, 'name', COALESCE(ec.nome_empresarial, a.ticker))
-                        FROM core.ativo a
-                        JOIN asset_details.detalhe_fii df ON df.id_ativo = a.id_ativo
-                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
-                        WHERE a.tipo_ativo::text = 'FII' AND df.pvp IS NOT NULL AND df.pvp > 0.05
-                        ORDER BY df.pvp ASC LIMIT 1
-                    ) as lowest_pvp;
-                """
-            )
-        else:
-            stmt = text(
-                """
-                SELECT 
-                    (
-                        SELECT json_build_object('ticker', a.ticker, 'dividendYield', COALESCE(inf.dividend_yield, 0.0), 'name', COALESCE(ec.nome_empresarial, a.ticker))
-                        FROM core.ativo a
-                        JOIN analytics.indicador_fundamentalista inf ON inf.id_ativo = a.id_ativo
-                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
-                        WHERE a.tipo_ativo::text = 'ACAO' AND inf.dividend_yield IS NOT NULL AND inf.dividend_yield <= 40.0
-                        ORDER BY inf.dividend_yield DESC LIMIT 1
-                    ) as highest_dy,
-                    (
-                        SELECT json_build_object('ticker', a.ticker, 'pvp', inf.pvp, 'name', COALESCE(ec.nome_empresarial, a.ticker))
-                        FROM core.ativo a
-                        JOIN analytics.indicador_fundamentalista inf ON inf.id_ativo = a.id_ativo
-                        LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
-                        WHERE a.tipo_ativo::text = 'ACAO' AND inf.pvp IS NOT NULL AND inf.pvp > 0.05
-                        ORDER BY inf.pvp ASC LIMIT 1
-                    ) as lowest_pvp;
-                """
-            )
-        res = await db_session.execute(stmt)
-        row = res.mappings().one_or_none()
-        if not row:
-            return {}
-        return dict(row)
+        # Use exactly the same evidence and formulas as the searchable list.
+        high, _ = await self.get_assets_with_count(asset_type=asset_type, limit=1, sort_by="dy", sort_dir="desc", db_session=db_session)
+        low, _ = await self.get_assets_with_count(asset_type=asset_type, limit=1, sort_by="pvp", sort_dir="asc", db_session=db_session)
+        return {
+            "highest_dy": {"ticker": high[0].ticker, "name": high[0].name, "dividendYield": high[0].dividendYield}
+                if high and high[0].dividendYield is not None else None,
+            "lowest_pvp": {"ticker": low[0].ticker, "name": low[0].name, "pvp": low[0].pvp}
+                if low and low[0].pvp is not None else None,
+        }
 
     async def get_dividend_calendar(
         self,
@@ -555,15 +517,9 @@ class MarketService:
                 if is_failed and (is_failed == b"1" or is_failed == "1"):
                     raise FinApiException("Dados temporariamente indisponíveis nas fontes externas", status_code=422)
 
-                # Check Redis Cache
-                cached_bytes = await self.redis.get(f"quote:{normalized}")
-                if cached_bytes:
-                    data = json.loads(cached_bytes.decode("utf-8") if isinstance(cached_bytes, bytes) else cached_bytes)
-                    return QuoteResponse(
-                        ticker=normalized,
-                        status="fresh",
-                        quote=TickerQuote(**data),
-                    )
+                # Quote cache entries have no verifiable session/source contract.
+                # Keep using the negative cache, but reload prices through the
+                # verified database boundary below.
             except FinApiException:
                 raise
             except Exception:
@@ -591,12 +547,12 @@ class MarketService:
                 db_quote = TickerQuote(
                     ticker=normalized,
                     price=float(row["preco_fechamento"]),
-                    change_pct=float(row.get("variacao_percentual") or 0.0),
-                    volume=float(row.get("volume_total") or 0.0),
+                    change_pct=float(row["variacao_percentual"]) if row.get("variacao_percentual") is not None else None,
+                    volume=float(row["volume_total"]) if row.get("volume_total") is not None else None,
                     p_l=float(row["pl"]) if row.get("pl") is not None else None,
                     p_vp=float(row["pvp"]) if row.get("pvp") is not None else None,
                     dy_pct=float(row["dividend_yield"]) if row.get("dividend_yield") is not None else None,
-                    source=row.get("fonte", "fin-db"),
+                    source="B3 / COTAHIST",
                 )
 
         # A real committed PostgreSQL task replaces the second ARQ ETL.

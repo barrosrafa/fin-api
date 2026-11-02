@@ -1,5 +1,5 @@
 from typing import Optional, List
-from sqlalchemy import text
+from app.market.quality import verified_market_text as text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.derivatives.schemas import (
     DerivativesResponse,

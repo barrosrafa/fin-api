@@ -1,7 +1,8 @@
 from fastapi import HTTPException
+from app.market.lifecycle import trading_status
 import math
 from typing import Optional, List
-from sqlalchemy import text
+from app.market.quality import verified_market_text as text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.stocks.schemas import (
     StockValuationResponse,
@@ -36,6 +37,8 @@ class StockService:
         t = ticker.upper()
         if db_session is None:
             raise HTTPException(status_code=503, detail="Valuation data unavailable")
+        if trading_status(t).status == "inactive":
+            raise HTTPException(status_code=409, detail="Trading ended; current valuation unavailable")
         current_price = lpa = vpa = dpa_medio = None
         name = "Petróleo Brasileiro S.A. Petrobras" if t == "PETR4" else f"Companhia {t}"
         id_ativo = None
@@ -51,8 +54,9 @@ class StockService:
             asset_stmt = text(
                 """
                 SELECT a.id_ativo, a.id_emissor, a.ticker, 
-                       COALESCE(ec.nome_empresarial, a.ticker) as nome
+                       COALESCE(ec.nome_empresarial, a.ticker) as nome, ci.status AS registry_status
                 FROM core.ativo a
+                LEFT JOIN canonical.instrument ci ON ci.instrument_id = a.canonical_instrument_id
                 LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
                 WHERE a.ticker = :ticker
                 LIMIT 1;
@@ -67,6 +71,8 @@ class StockService:
 
             if not asset_row:
                 raise HTTPException(status_code=404, detail=f"Stock ticker '{t}' not found")
+            if trading_status(t, asset_row.get("registry_status")).status == "inactive":
+                raise HTTPException(status_code=409, detail="Trading ended; current valuation unavailable")
             # 2. Fetch Latest Quote & Fundamentals
             if id_ativo is not None:
                 quote_stmt = text(
@@ -264,6 +270,7 @@ class StockService:
         segmento = "Geral"
         current_price = None
         data_cotacao = None
+        registry_status = None
         min_52 = None
         max_52 = None
         vol_2m = None
@@ -280,13 +287,14 @@ class StockService:
         if db_session is not None:
             stmt = text(
                 """
-                SELECT a.id_ativo, a.id_emissor, a.ticker, a.tipo_ativo, a.classe_acao,
+                SELECT a.id_ativo, a.id_emissor, a.ticker, a.tipo_ativo, a.classe_acao, ci.status AS registry_status,
                        a.min_52_semanas, a.max_52_semanas, a.volume_medio_2m, a.quantidade_emitida,
                        ec.nome_empresarial, ec.setor, ec.subsetor, ec.segmento_listagem as segmento,
                        cd.preco_fechamento, to_char(cd.data_pregao, 'YYYY-MM-DD') as dt_pregao,
                        inf.valor_mercado, inf.enterprise_value
                 FROM core.ativo a
                 LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+                LEFT JOIN canonical.instrument ci ON ci.instrument_id = a.canonical_instrument_id
                 LEFT JOIN LATERAL (
                     SELECT preco_fechamento, data_pregao
                     FROM market.cotacao_diaria
@@ -308,6 +316,7 @@ class StockService:
             if not row:
                 raise HTTPException(status_code=404, detail=f"Stock ticker '{t}' not found")
             if row:
+                registry_status = row.get("registry_status")
                 name = row["nome_empresarial"] or name
                 tipo = str(row["tipo_ativo"]) if row["tipo_ativo"] else tipo
                 classe_acao = row["classe_acao"] or classe_acao
@@ -344,6 +353,8 @@ class StockService:
             segmento=segmento,
             current_price=round(current_price, 2) if current_price is not None else None,
             data_cotacao=data_cotacao,
+            source="B3 / COTAHIST" if current_price is not None else None,
+            trading=trading_status(t, registry_status),
             min_52_semanas=round(min_52, 2) if min_52 is not None else None,
             max_52_semanas=round(max_52, 2) if max_52 is not None else None,
             volume_medio_2m=round(vol_2m, 2) if vol_2m is not None else None,
@@ -578,12 +589,7 @@ class StockService:
     ) -> FinancialMatrixResponse:
         t = ticker.upper()
         if db_session is None:
-            return FinancialMatrixResponse(
-                ticker=t,
-                company_name=f"Companhia {t}",
-                period_type=period_type,
-                years=["2021", "2022", "2023", "2024", "2025"],
-            )
+            raise HTTPException(status_code=503, detail="Financial matrix unavailable")
 
         tipo_dem = "ANUAL_CONSOL" if period_type.upper() == "ANUAL" else "TRIMESTRAL_CONSOL"
         stmt = text(
@@ -707,13 +713,7 @@ class StockService:
     ) -> DividendMatrixResponse:
         t = ticker.upper()
         if db_session is None:
-            current_year = 2026
-            matrix = [
-                DividendMatrixRow(year=current_year, months=[0.45, None, 0.60, None, 0.85, None, 0.40, None, 0.50, None, None, 1.20], annual_total=4.00, yield_on_cost_pct=10.4),
-                DividendMatrixRow(year=current_year - 1, months=[0.40, None, 0.55, None, 0.80, None, 0.35, None, 0.45, None, None, 1.10], annual_total=3.65, yield_on_cost_pct=9.5),
-                DividendMatrixRow(year=current_year - 2, months=[0.35, None, 0.50, None, 0.75, None, 0.30, None, 0.40, None, None, 1.00], annual_total=3.30, yield_on_cost_pct=8.6),
-            ]
-            return DividendMatrixResponse(ticker=t, years=[r.year for r in matrix], matrix=matrix)
+            raise HTTPException(status_code=503, detail="Dividend history unavailable")
 
         stmt = text(
             """
@@ -724,6 +724,7 @@ class StockService:
             FROM market.provento p
             JOIN core.ativo a ON a.id_ativo = p.id_ativo
             WHERE a.ticker = :ticker AND p.data_pagamento IS NOT NULL
+              AND p.fonte_provento IS NOT NULL AND p.payload_fonte IS NOT NULL
             GROUP BY EXTRACT(YEAR FROM p.data_pagamento), EXTRACT(MONTH FROM p.data_pagamento)
             ORDER BY ano DESC, mes ASC;
             """
@@ -773,11 +774,7 @@ class StockService:
         db_session: Optional[AsyncSession] = None,
     ) -> List[ConsistencyScreenerItem]:
         if db_session is None:
-            return [
-                ConsistencyScreenerItem(ticker="WEGE3", company_name="WEG S.A.", sector="Bens Industriais", segment="Motores e Compressores", consecutive_profitable_years=10, cagr_lucro_5y=19.86, current_pe=32.4, current_pb=9.8, current_dy=1.8, current_roe=31.2),
-                ConsistencyScreenerItem(ticker="PETR4", company_name="Petrobras", sector="Petróleo e Gás", segment="Exploração e Refino", consecutive_profitable_years=10, cagr_lucro_5y=13.50, current_pe=4.8, current_pb=1.15, current_dy=14.8, current_roe=28.5),
-                ConsistencyScreenerItem(ticker="VALE3", company_name="Vale S.A.", sector="Materiais Básicos", segment="Mineração", consecutive_profitable_years=10, cagr_lucro_5y=0.94, current_pe=6.1, current_pb=1.35, current_dy=9.2, current_roe=22.1),
-            ]
+            raise HTTPException(status_code=503, detail="Consistency screener unavailable")
 
         stmt = text(
             """
@@ -785,13 +782,13 @@ class StockService:
                 mv.ticker,
                 mv.nome_empresarial,
                 COALESCE(mv.setor, 'Geral') as setor,
-                COALESCE(mv.segmento_listagem, 'Novo Mercado') as segmento,
+                mv.segmento_listagem as segmento,
                 mv.anos_historico_cobertura,
                 mv.cagr_lucro_5a,
-                COALESCE(inf.pl, 0.0) as pl,
-                COALESCE(inf.pvp, 1.0) as pvp,
-                COALESCE(inf.dividend_yield, 0.0) as dy,
-                COALESCE(inf.roe, 0.0) as roe
+                inf.pl as pl,
+                inf.pvp as pvp,
+                inf.dividend_yield as dy,
+                inf.roe as roe
             FROM analytics.mv_acoes_consistencia_lucro mv
             LEFT JOIN LATERAL (
                 SELECT pl, pvp, dividend_yield, roe 
@@ -821,15 +818,13 @@ class StockService:
                     segment=r["segmento"],
                     consecutive_profitable_years=int(r["anos_historico_cobertura"]),
                     cagr_lucro_5y=cagr,
-                    current_pe=float(r["pl"]) if r["pl"] else None,
-                    current_pb=float(r["pvp"]) if r["pvp"] else None,
-                    current_dy=float(r["dy"]),
-                    current_roe=float(r["roe"]),
+                    current_pe=float(r["pl"]) if r["pl"] is not None else None,
+                    current_pb=float(r["pvp"]) if r["pvp"] is not None else None,
+                    current_dy=float(r["dy"]) if r["dy"] is not None else None,
+                    current_roe=float(r["roe"]) if r["roe"] is not None else None,
                 )
             )
 
-        if not items:
-            return await self.get_consistency_screener(min_years=min_years, db_session=None)
         return items
 
     async def get_stocks_ranking(
@@ -857,17 +852,10 @@ class StockService:
         }.get(sort_by.lower(), "inf.dividend_yield DESC NULLS LAST")
 
         if db_session is None:
-            mock_items = [
-                StockRankingItem(rank=1, ticker="PETR4", name="Petrobras PN", sector="Petróleo e Gás", price=38.45, dy=14.8, pl=4.8, pvp=1.15, roe=28.5, roic=24.1, margem_liquida=19.2, ev_ebitda=3.2, liquidez=1850000000.0),
-                StockRankingItem(rank=2, ticker="VALE3", name="Vale S.A.", sector="Mineração", price=62.10, dy=9.2, pl=6.1, pvp=1.35, roe=22.1, roic=18.5, margem_liquida=24.0, ev_ebitda=4.1, liquidez=1240000000.0),
-                StockRankingItem(rank=3, ticker="WEGE3", name="WEG S.A.", sector="Bens Industriais", price=54.20, dy=1.8, pl=32.4, pvp=9.8, roe=31.2, roic=29.4, margem_liquida=16.1, ev_ebitda=22.5, liquidez=340000000.0),
-            ]
-            return mock_items, len(mock_items)
+            raise HTTPException(status_code=503, detail="Stock ranking unavailable")
 
         where_clauses = [
             "a.tipo_ativo::text = 'ACAO'",
-            "(inf.dividend_yield IS NULL OR inf.dividend_yield <= 40.0)",
-            "(cd.preco_fechamento IS NULL OR cd.preco_fechamento >= 1.0)",
         ]
         params: dict = {"limit": limit, "offset": offset}
 
@@ -880,7 +868,7 @@ class StockService:
             params["sector"] = f"%{sector.strip()}%"
 
         if min_dy is not None:
-            where_clauses.append("COALESCE(inf.dividend_yield, 0.0) >= :min_dy")
+            where_clauses.append("inf.dividend_yield >= :min_dy")
             params["min_dy"] = min_dy
 
         if max_pl is not None:
@@ -935,8 +923,9 @@ class StockService:
                 a.ticker,
                 COALESCE(ec.nome_empresarial, a.ticker) as nome,
                 COALESCE(ec.setor, 'Geral') as setor,
-                cd.preco_fechamento as preco,
-                COALESCE(inf.dividend_yield, 0.0) as dy,
+                cd.preco_fechamento as preco, cd.data_pregao::text AS quote_date,
+                ci.status AS registry_status,
+                inf.dividend_yield as dy,
                 inf.pl,
                 inf.pvp,
                 inf.roe,
@@ -946,8 +935,9 @@ class StockService:
                 COALESCE(cd.volume_total, a.volume_medio) as liquidez
             FROM core.ativo a
             LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
+            LEFT JOIN canonical.instrument ci ON ci.instrument_id = a.canonical_instrument_id
             LEFT JOIN LATERAL (
-                SELECT preco_fechamento, volume_total 
+                SELECT preco_fechamento, volume_total, data_pregao
                 FROM market.cotacao_diaria 
                 WHERE id_ativo = a.id_ativo 
                 ORDER BY data_pregao DESC LIMIT 1
@@ -975,7 +965,10 @@ class StockService:
                     name=r["nome"],
                     sector=r["setor"],
                     price=float(r["preco"]) if r["preco"] is not None else None,
-                    dy=float(r["dy"]),
+                    dy=float(r["dy"]) if r["dy"] is not None else None,
+                    source="B3 / COTAHIST" if r["preco"] is not None else None,
+                    quote_date=r.get("quote_date"),
+                    trading=trading_status(r["ticker"], r.get("registry_status")),
                     pl=float(r["pl"]) if r["pl"] is not None else None,
                     pvp=float(r["pvp"]) if r["pvp"] is not None else None,
                     roe=float(r["roe"]) if r["roe"] is not None else None,

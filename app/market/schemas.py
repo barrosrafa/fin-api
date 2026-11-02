@@ -1,12 +1,13 @@
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
+from app.market.lifecycle import TradingStatus
 
 
 class TickerQuote(BaseModel):
     ticker: str
     price: float
-    change_pct: float
-    volume: float = 0.0
+    change_pct: Optional[float] = None
+    volume: Optional[float] = None
     p_l: Optional[float] = None
     dy_pct: Optional[float] = None
     p_vp: Optional[float] = None
@@ -83,6 +84,8 @@ class ScreenerItem(BaseModel):
 
 # Endpoints for Frontend Terminal
 class BenchmarkItem(BaseModel):
+    source: Optional[str] = None
+    as_of: Optional[str] = None
     name: str
     ticker: str
     value: float
@@ -91,15 +94,18 @@ class BenchmarkItem(BaseModel):
 
 
 class AssetSummaryResponse(BaseModel):
+    source: Optional[str] = None
+    quote_date: Optional[str] = None
+    trading: TradingStatus = Field(default_factory=TradingStatus)
     ticker: str
     name: str
     type: str  # ACAO, FII, ETF
     sector: str
     subsector: Optional[str] = None
     currentPrice: Optional[float] = None
-    change24h: float
+    change24h: Optional[float] = None
     change12m: Optional[float] = None
-    dividendYield: float
+    dividendYield: Optional[float] = None
     marketCap: Optional[float] = None
     pvp: Optional[float] = None
     pl: Optional[float] = None

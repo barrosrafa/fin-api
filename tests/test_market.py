@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from app.market.service import MarketService
-from app.market.schemas import QuoteResponse, SyncStatusResponse, ScreenerFilter
 from app.core.exceptions import AssetNotListedException
 
 @pytest.mark.asyncio
@@ -22,7 +21,7 @@ async def test_cold_start_invalid_ticker_returns_404():
     assert exc_info.value.ticker == "NONEXIST99"
 
 @pytest.mark.asyncio
-async def test_quote_cache_hit_returns_fresh():
+async def test_unproven_quote_cache_does_not_bypass_verified_database():
     mock_catalog = AsyncMock()
     mock_catalog.is_valid = AsyncMock(return_value=True)
 
@@ -37,10 +36,10 @@ async def test_quote_cache_hit_returns_fresh():
         arq_pool=mock_arq,
     )
 
-    response = await service.get_quote("PETR4")
-    assert response.status == "fresh"
-    assert response.quote.ticker == "PETR4"
-    assert response.quote.price == 37.10
+    from app.core.exceptions import FinApiException
+    with pytest.raises(FinApiException) as error:
+        await service.get_quote("PETR4")
+    assert error.value.status_code == 503
     mock_arq.enqueue_job.assert_not_called()
 
 @pytest.mark.asyncio

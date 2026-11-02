@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import text
+from app.market.quality import verified_market_text as text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.rankings.schemas import RankingsResponse, RankingAssetItem

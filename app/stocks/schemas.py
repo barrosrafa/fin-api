@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
+from app.market.lifecycle import TradingStatus
 
 
 class StockChecklistItem(BaseModel):
@@ -108,6 +109,8 @@ class StockValuationResponse(BaseModel):
 
 
 class StockDetailsResponse(BaseModel):
+    source: Optional[str] = None
+    trading: TradingStatus = Field(default_factory=TradingStatus)
     ticker: str
     name: str
     tipo: Optional[str] = None
@@ -204,13 +207,13 @@ class ConsistencyScreenerItem(BaseModel):
     ticker: str
     company_name: str
     sector: str
-    segment: str
+    segment: Optional[str] = None
     consecutive_profitable_years: int
     cagr_lucro_5y: Optional[float] = None
     current_pe: Optional[float] = None
     current_pb: Optional[float] = None
-    current_dy: float
-    current_roe: float
+    current_dy: Optional[float] = None
+    current_roe: Optional[float] = None
 
 
 class StockRankingItem(BaseModel):
@@ -219,7 +222,10 @@ class StockRankingItem(BaseModel):
     name: str
     sector: str
     price: Optional[float] = None
-    dy: float
+    dy: Optional[float] = None
+    source: Optional[str] = None
+    quote_date: Optional[str] = None
+    trading: TradingStatus = Field(default_factory=TradingStatus)
     pl: Optional[float] = None
     pvp: Optional[float] = None
     roe: Optional[float] = None

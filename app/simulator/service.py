@@ -2,7 +2,7 @@ import math
 from fastapi import HTTPException
 from datetime import datetime, date
 from typing import List, Dict, Optional
-from sqlalchemy import text
+from app.market.quality import verified_market_text as text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.simulator.schemas import (
     SimulatePortfolioRequest,
