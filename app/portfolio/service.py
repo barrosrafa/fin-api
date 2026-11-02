@@ -1,10 +1,11 @@
-import json
-from datetime import datetime, timezone
+from datetime import date, datetime, time
 from decimal import Decimal, localcontext
+from zoneinfo import ZoneInfo
 from app.calculations.money import decimal_value, money
 from app.calculations.pnl import Position
 from typing import List, Optional, Dict
 from sqlalchemy import text
+from app.market.quality import verified_market_text
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
@@ -15,7 +16,6 @@ from app.portfolio.schemas import (
     PortfolioSummaryResponse,
 )
 from app.core.exceptions import ResourceNotFoundException
-from app.core.logging import logger
 
 
 class PortfolioService:
@@ -112,11 +112,18 @@ class PortfolioService:
         if not check_res.scalar_one_or_none():
             raise ResourceNotFoundException("Wallet", str(wallet_id))
 
-        stmt = text(
+        stmt = verified_market_text(
             """
-            SELECT a.ticker, a.tipo_ativo, p.quantidade_total AS quantidade, p.preco_medio_ponderado AS preco_medio
+            SELECT a.ticker, a.tipo_ativo, p.quantidade_total AS quantidade,
+                   p.preco_medio_ponderado AS preco_medio,
+                   cd.preco_fechamento AS verified_price, cd.data_pregao::text AS verified_as_of
             FROM core.posicao_custodia p
             JOIN core.ativo a ON a.id_ativo = p.id_ativo
+            LEFT JOIN LATERAL (
+                SELECT preco_fechamento, data_pregao
+                FROM market.cotacao_diaria WHERE id_ativo = a.id_ativo
+                ORDER BY data_pregao DESC LIMIT 1
+            ) cd ON TRUE
             WHERE p.id_carteira = CAST(:wallet_id AS UUID) AND p.quantidade_total > 0
             """
         )
@@ -137,26 +144,16 @@ class PortfolioService:
                 avg_price = decimal_value(r["preco_medio"])
                 cost = qty * avg_price
                 total_cost += cost
-                price, as_of, source = None, None, None
+                price = decimal_value(r["verified_price"], positive=True) if r.get("verified_price") is not None else None
+                source = "B3 / COTAHIST" if price is not None else None
+                as_of = None
                 status = "missing"
-                if self.redis is not None:
-                    try:
-                        cached = await self.redis.get(f"quote:{ticker}")
-                        if cached:
-                            quote = json.loads(cached, parse_float=Decimal)
-                            price = decimal_value(quote.get("price"), positive=True)
-                            source = quote.get("source")
-                            source = source.strip() if isinstance(source, str) else None
-                            fact_time = quote.get("as_of")
-                            as_of = datetime.fromisoformat(fact_time.replace("Z", "+00:00")) if fact_time else None
-                            age = (datetime.now(timezone.utc) - as_of).total_seconds() if as_of and as_of.tzinfo else None
-                            # Price age is measured from the fact time, never from its collection time.
-                            # This conservative policy is not an exchange-session calendar.
-                            status = "valid" if age is not None and 0 <= age <= 300 and source else "stale"
-                    except (ValueError, TypeError, AttributeError):
-                        price, as_of, source, status = None, None, None, "missing"
-                    except aioredis.RedisError:
-                        logger.warning("Portfolio quote cache unavailable")
+                fact_date = date.fromisoformat(r["verified_as_of"]) if r.get("verified_as_of") else None
+                if price is not None and fact_date is not None:
+                    br_today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+                    age_days = (br_today - fact_date).days
+                    as_of = datetime.combine(fact_date, time.min, tzinfo=ZoneInfo("America/Sao_Paulo"))
+                    status = "valid" if 0 <= age_days <= 4 else "stale"
                 equity = qty * price if price is not None and status == "valid" else None
                 pl = equity - cost if equity is not None else None
                 asset_type = str(r["tipo_ativo"])

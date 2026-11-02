@@ -36,3 +36,13 @@ SELECT a.id_ativo, s.data_referencia,
 FROM core.ativo a CROSS JOIN market.benchmark_serie s
 WHERE a.ticker IN ('BLFT11','DEBB11','BOVA11','IVVB11')
   AND s.id_benchmark = 1 AND s.data_referencia BETWEEN DATE '2024-01-02' AND DATE '2026-10-26';
+
+-- Synthetic proof records for the synthetic return/backtest scenarios above.
+-- This file is loaded ONLY in the guarded local fin_ci database; no production
+-- source identity is created by the fixture loader outside that database.
+DELETE FROM market.nominal_bar
+WHERE ticker IN ('RENT3','BLFT11','DEBB11','BOVA11','IVVB11');
+INSERT INTO market.nominal_bar(ticker,reference_date,source,currency,interval,close,open,high,low)
+SELECT a.ticker,q.data_pregao,'b3','BRL','day',q.preco_fechamento,q.preco_abertura,q.preco_maximo,q.preco_minimo
+FROM market.cotacao_diaria q JOIN core.ativo a USING(id_ativo)
+WHERE a.ticker IN ('RENT3','BLFT11','DEBB11','BOVA11','IVVB11');

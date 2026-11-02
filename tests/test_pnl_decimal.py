@@ -1,5 +1,6 @@
 from decimal import Decimal as D
 from datetime import date, datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import AsyncMock, MagicMock
 import json
 import pytest
@@ -55,13 +56,16 @@ def test_transaction_rejects_invalid_values(field, bad):
         TransactionCreate(**values)
 
 
-def db_for_positions():
+def db_for_positions(quotes=None):
     check, positions = MagicMock(), MagicMock()
     check.scalar_one_or_none.return_value = "wallet"
     positions.mappings.return_value.all.return_value = [
         {"ticker": "A", "quantidade": D("100"), "preco_medio": D("10.05"), "tipo_ativo": "ACAO"},
         {"ticker": "B", "quantidade": D("60"), "preco_medio": D("10.05"), "tipo_ativo": "ACAO"},
     ]
+    if quotes:
+        for row, quote in zip(positions.mappings.return_value.all.return_value, quotes):
+            row.update(quote)
     return AsyncMock(execute=AsyncMock(side_effect=[check, positions]))
 
 
@@ -83,7 +87,15 @@ async def test_missing_or_unproven_cache_never_manufactures_zero_pnl(cached):
 async def test_partial_and_stale_prices_have_explicit_coverage_and_decimal_json():
     quote = json.dumps({"price": "11", "source": "fixture", "as_of": datetime.now(timezone.utc).isoformat()})
     stale = json.dumps({"price": "12", "source": "fixture", "as_of": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()})
-    summary = await PortfolioService(AsyncMock(get=AsyncMock(side_effect=[quote, stale]))).get_portfolio_summary("wallet", "user", db_for_positions())
+    today_brt = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    summary = await PortfolioService(AsyncMock(get=AsyncMock(side_effect=[quote, stale]))).get_portfolio_summary(
+        "wallet",
+        "user",
+        db_for_positions([
+            {"verified_price": D("11"), "verified_as_of": today_brt.isoformat()},
+            {"verified_price": D("12"), "verified_as_of": (today_brt - timedelta(days=10)).isoformat()},
+        ]),
+    )
     assert summary.total_equity is None
     assert summary.covered_equity == 1100
     assert summary.price_coverage_pct == 50
@@ -96,6 +108,6 @@ async def test_partial_and_stale_prices_have_explicit_coverage_and_decimal_json(
 @pytest.mark.asyncio
 async def test_fresh_collection_does_not_make_old_fact_current():
     quote = json.dumps({"price": "11", "source": "fixture", "collected_at": datetime.now(timezone.utc).isoformat()})
-    summary = await PortfolioService(AsyncMock(get=AsyncMock(return_value=quote))).get_portfolio_summary("wallet", "user", db_for_positions())
+    summary = await PortfolioService(AsyncMock(get=AsyncMock(return_value=quote))).get_portfolio_summary("wallet", "user", db_for_positions([{"verified_price": D("11"), "verified_as_of": (date.today()-timedelta(days=10)).isoformat()}]*2))
     assert summary.total_equity is None
     assert all(position.price_status == "stale" for position in summary.positions)

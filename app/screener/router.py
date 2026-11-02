@@ -1,7 +1,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from app.market.quality import verified_market_text as text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session

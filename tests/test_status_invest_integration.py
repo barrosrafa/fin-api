@@ -46,7 +46,7 @@ async def test_market_quote_exposes_fundamental_indicators():
     assert quote_resp.quote.p_l == 4.80
     assert quote_resp.quote.p_vp == 1.15
     assert quote_resp.quote.dy_pct == 14.80
-    assert quote_resp.quote.source == "fin-db"
+    assert quote_resp.quote.source == "B3 / COTAHIST"
 
 
 @pytest.mark.asyncio

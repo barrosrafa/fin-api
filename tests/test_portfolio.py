@@ -2,14 +2,11 @@ import pytest
 import json
 from decimal import Decimal
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch, MagicMock
+from zoneinfo import ZoneInfo
+from unittest.mock import AsyncMock, MagicMock
 from app.portfolio.service import PortfolioService
 from app.portfolio.schemas import (
     WalletCreate,
-    TransactionCreate,
-    TransactionType,
-    WalletResponse,
-    PositionResponse,
 )
 
 @pytest.mark.asyncio
@@ -65,8 +62,8 @@ async def test_get_portfolio_summary_and_allocation():
     # Second query returns positions
     mock_positions = MagicMock()
     mock_positions.mappings.return_value.all.return_value = [
-        {"ticker": "PETR4", "quantidade": 200, "preco_medio": 30.0, "tipo_ativo": "ACAO"},
-        {"ticker": "HGLG11", "quantidade": 50, "preco_medio": 160.0, "tipo_ativo": "FII"},
+        {"ticker": "PETR4", "quantidade": 200, "preco_medio": 30.0, "tipo_ativo": "ACAO", "verified_price": 35, "verified_as_of": datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat()},
+        {"ticker": "HGLG11", "quantidade": 50, "preco_medio": 160.0, "tipo_ativo": "FII", "verified_price": 170, "verified_as_of": datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat()},
     ]
     mock_db.execute = AsyncMock(side_effect=[mock_check, mock_positions])
 
