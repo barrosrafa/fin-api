@@ -52,13 +52,12 @@ class MarketService:
                 pass
         stmt = text(
             """
-            SELECT b.codigo, b.nome, b.fonte AS source,
-                   (SELECT s.data_referencia::text FROM market.benchmark_serie s WHERE s.id_benchmark=b.id_benchmark ORDER BY s.data_referencia DESC LIMIT 1) AS as_of,
-                   (SELECT s.valor FROM market.benchmark_serie s WHERE s.id_benchmark = b.id_benchmark ORDER BY s.data_referencia DESC LIMIT 1) as last_val,
-                   NULL as last_change
-            FROM market.benchmark b
-            WHERE b.codigo IN ('IBOV', 'IFIX', 'USDBRL', 'SELIC', 'SPX', 'BTCBRL')
-            ORDER BY CASE b.codigo
+            SELECT codigo, nome, source,
+                   data_referencia::text AS as_of,
+                   last_val,
+                   NULL AS last_change
+            FROM market.vw_benchmark_latest
+            ORDER BY CASE codigo
                 WHEN 'IBOV' THEN 1
                 WHEN 'IFIX' THEN 2
                 WHEN 'USDBRL' THEN 3
@@ -910,4 +909,3 @@ class MarketService:
             total_days=int(rows[0].get("total_count", len(items))) if rows else 0,
             data=items,
         )
-

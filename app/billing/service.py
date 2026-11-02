@@ -39,36 +39,26 @@ class BillingService:
         try:
             if event.event_type in confirmed_events and event.customer_email:
                 if db_session is not None:
-                    stmt = text(
-                        """
-                        UPDATE core.usuario
-                        SET tier = :tier
-                        WHERE email = :email;
-                        """
-                    )
                     await db_session.execute(
-                        stmt,
-                        {"tier": event.plan_tier.value, "email": event.customer_email},
-                    )
-
-                    # Durable inbox audit recording
-                    try:
-                        await db_session.execute(
-                            text(
-                                """
-                                INSERT INTO billing.webhook_inbox (event_id, gateway_provider, event_type, payload, status, processed_at)
-                                VALUES (:id, 'asaas', :type, :payload::jsonb, 'PROCESSED', NOW())
-                                ON CONFLICT (event_id) DO UPDATE SET status = 'PROCESSED', processed_at = NOW();
-                                """
-                            ),
-                            {
-                                "id": event.event_id,
+                        text("""
+                            SELECT billing.fn_process_webhook(
+                                :event_id, :gateway, :event_type, CAST(:payload AS jsonb),
+                                :customer_email, :plan_tier
+                            )
+                        """),
+                        {
+                            "event_id": event.event_id,
+                            "gateway": "asaas",
+                            "event_type": event.event_type,
+                            "payload": json.dumps(event.payload or {
                                 "type": event.event_type,
-                                "payload": json.dumps({"type": event.event_type, "email": event.customer_email}),
-                            },
-                        )
-                    except Exception:
-                        pass
+                                "email": event.customer_email,
+                                "amount": event.amount,
+                            }),
+                            "customer_email": event.customer_email,
+                            "plan_tier": event.plan_tier.value,
+                        },
+                    )
 
                     await db_session.commit()
 

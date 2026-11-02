@@ -105,26 +105,24 @@ class AnalyticsService:
         month_filter = ""
         params = {"min_prob": min_probability}
         if month:
-            month_filter = "AND s.mes_calendario = :month"
+            month_filter = "AND mes_calendario = :month"
             params["month"] = month
 
         stmt = text(
             f"""
-            SELECT 
-                a.ticker,
-                COALESCE(ec.nome_empresarial, a.ticker) as nome,
-                a.tipo_ativo::text as tipo,
-                s.mes_calendario,
-                s.tipo_evento,
-                s.probabilidade_pct,
-                s.valor_medio_provento,
-                s.ultimo_ano_pago
-            FROM analytics.mapa_sazonalidade_dividendo s
-            JOIN core.ativo a ON a.id_ativo = s.id_ativo
-            LEFT JOIN core.emissor_companhia ec ON ec.id_emissor = a.id_emissor
-            WHERE s.probabilidade_pct >= :min_prob
+            SELECT
+                ticker,
+                nome,
+                tipo,
+                mes_calendario,
+                tipo_evento,
+                probabilidade_pct,
+                valor_medio_provento,
+                ultimo_ano_pago
+            FROM analytics.vw_dividend_map
+            WHERE probabilidade_pct >= :min_prob
               {month_filter}
-            ORDER BY a.ticker, s.mes_calendario, s.tipo_evento;
+            ORDER BY ticker, mes_calendario, tipo_evento;
             """
         )
         res = await db_session.execute(stmt, params)
@@ -192,95 +190,50 @@ class AnalyticsService:
         status: Optional[str] = None,
         ticker: Optional[str] = None,
     ) -> tuple[List[DividendCalendarDetailItem], int]:
-        """
-        Returns full detailed corporate actions agenda with gross/net, tax rate, status and event yields.
-        """
-        where_clauses = ["p.data_com IS NOT NULL"]
-        params: dict = {"limit": limit, "offset": offset}
-
-        if event_type and event_type.upper() != "ALL":
-            where_clauses.append("p.tipo_provento::text = :event_type")
-            params["event_type"] = event_type.upper()
-
-        if status and status.upper() == "FUTURO":
-            where_clauses.append("p.data_pagamento >= CURRENT_DATE")
-        elif status and status.upper() == "PAGO":
-            where_clauses.append("p.data_pagamento < CURRENT_DATE")
-
-        if ticker and ticker.strip():
-            where_clauses.append("a.ticker = :ticker")
-            params["ticker"] = ticker.strip().upper()
-
-        where_sql = " AND ".join(where_clauses)
-
-        count_stmt = text(
-            f"""
-            SELECT count(*)
-            FROM market.provento p
-            JOIN core.ativo a ON a.id_ativo = p.id_ativo
-            WHERE {where_sql};
-            """
-        )
+        """Returns the dividend calendar through the database table-valued function."""
+        event_type_param = (event_type or "ALL").upper()
+        status_param = status.upper() if status else None
+        ticker_param = ticker.strip().upper() if ticker and ticker.strip() else None
         count_res = await db_session.execute(
-            count_stmt, {k: v for k, v in params.items() if k not in ("limit", "offset")}
+            text("""
+                SELECT analytics.fn_dividend_calendar_count(
+                    :event_type, :status, :ticker
+                )
+            """),
+            {"event_type": event_type_param, "status": status_param, "ticker": ticker_param},
         )
         total = count_res.scalar_one_or_none() or 0
-
-        stmt = text(
-            f"""
-            SELECT 
-                p.id_provento,
-                a.ticker,
-                p.tipo_provento::text as tipo,
-                to_char(p.data_com, 'YYYY-MM-DD') as dt_com,
-                to_char(p.data_ex, 'YYYY-MM-DD') as dt_ex,
-                to_char(p.data_pagamento, 'YYYY-MM-DD') as dt_pag,
-                CASE WHEN p.data_pagamento >= CURRENT_DATE THEN 'FUTURO' ELSE 'PAGO' END as status_prov,
-                COALESCE(p.valor_por_acao, 0.0) as valor_bruto,
-                COALESCE(p.aliquota_retencao_fonte, CASE WHEN p.tipo_provento::text = 'JCP' THEN 15.0 ELSE 0.0 END) as aliquota_ir,
-                cd.preco_fechamento as cotacao,
-                COALESCE(p.moeda, 'BRL') as moeda
-            FROM market.provento p
-            JOIN core.ativo a ON a.id_ativo = p.id_ativo
-            LEFT JOIN LATERAL (
-                SELECT preco_fechamento 
-                FROM market.cotacao_diaria 
-                WHERE id_ativo = a.id_ativo 
-                ORDER BY data_pregao DESC LIMIT 1
-            ) cd ON TRUE
-            WHERE {where_sql}
-            ORDER BY 
-                CASE WHEN p.data_pagamento >= CURRENT_DATE THEN 0 ELSE 1 END,
-                p.data_com DESC
-            LIMIT :limit OFFSET :offset;
-            """
+        res = await db_session.execute(
+            text("""
+                SELECT * FROM analytics.fn_dividend_calendar(
+                    :limit, :offset, :event_type, :status, :ticker
+                )
+            """),
+            {
+                "limit": limit,
+                "offset": offset,
+                "event_type": event_type_param,
+                "status": status_param,
+                "ticker": ticker_param,
+            },
         )
-        res = await db_session.execute(stmt, params)
-        rows = res.mappings().all()
-
         items: List[DividendCalendarDetailItem] = []
-        for r in rows:
-            bruto = float(r["valor_bruto"])
-            aliquota = float(r["aliquota_ir"])
-            liquido = bruto * (1.0 - (aliquota / 100.0))
-            cotacao = float(r["cotacao"]) if r["cotacao"] is not None else None
-            yield_ev = (liquido / cotacao * 100.0) if cotacao and cotacao > 0 else 0.0
-
+        for r in res.mappings().all():
             items.append(
                 DividendCalendarDetailItem(
                     id_provento=r["id_provento"],
                     ticker=r["ticker"],
                     tipo=r["tipo"],
-                    data_com=r["dt_com"],
-                    data_ex=r["dt_ex"],
-                    data_pagamento=r["dt_pag"],
-                    status=r["status_prov"],
-                    valor_bruto=round(bruto, 4),
-                    aliquota_ir_pct=round(aliquota, 2),
-                    valor_liquido=round(liquido, 4),
+                    data_com=r["data_com"].isoformat() if r["data_com"] else None,
+                    data_ex=r["data_ex"].isoformat() if r["data_ex"] else None,
+                    data_pagamento=r["data_pagamento"].isoformat() if r["data_pagamento"] else None,
+                    status=r["status"],
+                    valor_bruto=round(float(r["valor_bruto"]), 4),
+                    aliquota_ir_pct=round(float(r["aliquota_ir"]), 2),
+                    valor_liquido=round(float(r["valor_liquido"]), 4),
                     moeda=r["moeda"],
-                    cotacao_atual=round(cotacao, 2) if cotacao is not None else None,
-                    yield_evento_pct=round(yield_ev, 2) if cotacao is not None else None,
+                    cotacao_atual=round(float(r["cotacao"]), 2) if r["cotacao"] is not None else None,
+                    yield_evento_pct=round(float(r["yield_evento_pct"]), 2) if r["cotacao"] is not None else None,
                 )
             )
         return items, total
